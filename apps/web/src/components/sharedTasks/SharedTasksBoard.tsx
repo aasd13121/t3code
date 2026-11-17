@@ -68,6 +68,13 @@ import { ScrollArea } from "../ui/scroll-area";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SidebarInset, SidebarTrigger } from "../ui/sidebar";
 import { Textarea } from "../ui/textarea";
+import {
+  parsePresetModelValue,
+  presetModelValue,
+  useStepTitleSuggestions,
+  useTaskStepPresets,
+  type TaskStepPreset,
+} from "./taskStepPresets.ts";
 
 const statusLabels = SHARED_TASK_STATUS_LABELS;
 const kindLabels = { feature: "功能开发", research: "研究", ops: "维护", other: "其他" } as const;
@@ -575,6 +582,9 @@ function TaskDetail({
   const [modelStepId, setModelStepId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { presets: detailPresets } = useTaskStepPresets();
+  const [detailPresetId, setDetailPresetId] = useState("");
+  const detailTitleSuggestions = useStepTitleSuggestions(detailPresets);
   const navigate = useNavigate();
   const newThread = useNewThreadHandler();
   const { copyToClipboard } = useCopyToClipboard();
@@ -639,6 +649,32 @@ function TaskDetail({
     }
   };
   const launchingPhaseRef = useRef(false);
+  const applyPreset = () => {
+    if (!task || !detailPresetId || busy) return;
+    const preset = detailPresets.find((entry) => entry.id === detailPresetId);
+    if (!preset) return;
+    const steps = [...task.steps];
+    for (const presetStep of preset.steps) {
+      const existing = steps.find((step) => step.title === presetStep.title);
+      if (existing) {
+        const index = steps.indexOf(existing);
+        steps[index] = presetStep.model
+          ? { ...existing, model: { ...presetStep.model } }
+          : existing;
+      } else {
+        steps.push({
+          id: SecureRandom.uuidV4Unsafe(),
+          title: presetStep.title,
+          status: "todo",
+          ...(presetStep.model ? { model: { ...presetStep.model } } : {}),
+        });
+      }
+    }
+    void mutate(
+      { steps: steps.slice(0, 100), ...(task.status === "todo" ? { status: "doing" } : {}) },
+      "应用阶段预设：" + preset.name,
+    );
+  };
   const launchPhase = async (step: SharedTaskStep) => {
     if (!task || !step.model || !selectedProject || busy || launchingPhaseRef.current) return;
     launchingPhaseRef.current = true;
@@ -694,7 +730,7 @@ function TaskDetail({
         if (!open) onClose();
       }}
     >
-      <DialogPopup>
+      <DialogPopup className="max-h-[85dvh]">
         <DialogHeader>
           <DialogTitle>{task?.title ?? "任务详情"}</DialogTitle>
           <DialogDescription>同一项任务的目标、步骤和跨会话进度。</DialogDescription>
@@ -755,10 +791,38 @@ function TaskDetail({
                 </section>
               ) : null}
               <section className="space-y-3" aria-label="任务步骤">
-                <h3 className="text-sm font-medium">
-                  步骤 · {task.steps.filter((step) => step.status === "done").length} /{" "}
-                  {task.steps.length}
-                </h3>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-medium">
+                    步骤 · {task.steps.filter((step) => step.status === "done").length} /{" "}
+                    {task.steps.length}
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <Select
+                      value={detailPresetId}
+                      onValueChange={(value) => setDetailPresetId(value ?? "")}
+                    >
+                      <SelectTrigger aria-label="选择阶段预设" className="h-8 w-48 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectPopup>
+                        <SelectItem value="">选择预设…</SelectItem>
+                        {detailPresets.map((preset) => (
+                          <SelectItem key={preset.id} value={preset.id}>
+                            {preset.name}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!canUpdate || busy || !detailPresetId}
+                      onClick={applyPreset}
+                    >
+                      应用预设
+                    </Button>
+                  </div>
+                </div>
                 {task.steps.map((step) => (
                   <div
                     key={step.id}
@@ -930,10 +994,16 @@ function TaskDetail({
                   >
                     <Input
                       aria-label="新增步骤名称"
+                      list="shared-task-step-suggestions"
                       value={stepTitle}
                       onChange={(event) => setStepTitle(event.target.value.slice(0, 300))}
                       placeholder="添加下一项实际步骤"
                     />
+                    <datalist id="shared-task-step-suggestions">
+                      {detailTitleSuggestions.map((suggestion) => (
+                        <option key={suggestion} value={suggestion} />
+                      ))}
+                    </datalist>
                     <Button
                       type="submit"
                       variant="outline"
@@ -1328,10 +1398,22 @@ function TaskStepAssignmentForm({
         <Label htmlFor={id + "-assignee"}>负责人</Label>
         <Input
           id={id + "-assignee"}
+          list={id + "-assignee-options"}
           value={assignee}
           onChange={(event) => setAssignee(event.target.value.slice(0, 300))}
           placeholder="例如：实现智能体、测试智能体"
         />
+        <datalist id={id + "-assignee-options"}>
+          {[
+            ...new Set([
+              "主智能体",
+              "用户",
+              ...task.steps.map((step) => step.assignee).filter(Boolean),
+            ]),
+          ].map((suggestion) => (
+            <option key={suggestion} value={suggestion} />
+          ))}
+        </datalist>
       </div>
       <div className="space-y-1.5">
         <Label>关联智能体会话</Label>
@@ -1558,7 +1640,32 @@ function TaskEditor({
   const [projectId, setProjectId] = useState(
     task ? (task.projectId ?? "") : (defaultProjectId ?? ""),
   );
-  const [steps, setSteps] = useState("");
+  const [stepRows, setStepRows] = useState<
+    ReadonlyArray<{ key: string; title: string; modelValue: string }>
+  >([]);
+  const [presetId, setPresetId] = useState("");
+  const [presetName, setPresetName] = useState("");
+  const { presets, savedCount, save, remove } = useTaskStepPresets();
+  const stepTitleSuggestions = useStepTitleSuggestions(presets);
+  const settings = useEnvironmentSettings(environmentId);
+  const providers =
+    useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
+  const selectedProjectForModels = projects.find((value) => value.id === projectId) ?? null;
+  const modelEntries = providerInstanceEntriesFor(
+    providers,
+    settings,
+    selectedProjectForModels?.id ?? null,
+  );
+  const modelOptionsByInstance = getCustomModelOptionsByInstance(settings, providers, null, null);
+  const flatModelOptions = modelEntries
+    .filter((entry) => entry.enabled)
+    .flatMap((entry) =>
+      (modelOptionsByInstance.get(entry.instanceId) ?? []).map((option) => ({
+        value: JSON.stringify([entry.instanceId, option.slug]),
+        label: `${entry.displayName} · ${option.shortName ?? option.name}`,
+        modelLabel: option.shortName ?? option.name,
+      })),
+    );
   const [busy, setBusy] = useState(false);
   const [conflicted, setConflicted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1591,12 +1698,24 @@ function TaskEditor({
         const input: SharedTaskCreateInput = {
           ...fields,
           workspaceRoot: project?.workspaceRoot ?? null,
-          steps: steps
-            .split("\n")
-            .map((value) => value.trim())
-            .filter(Boolean)
+          steps: stepRows
+            .map((row) => ({ title: row.title.trim(), modelValue: row.modelValue }))
+            .filter((row) => row.title)
             .slice(0, 100)
-            .map((value) => ({ id: SecureRandom.uuidV4Unsafe(), title: value, status: "todo" })),
+            .map((row) => {
+              const model = parsePresetModelValue(row.modelValue);
+              const modelLabel = model
+                ? (flatModelOptions.find(
+                    (option) => option.value === JSON.stringify([model.instanceId, model.model]),
+                  )?.modelLabel ?? null)
+                : null;
+              return {
+                id: SecureRandom.uuidV4Unsafe(),
+                title: row.title,
+                status: "todo",
+                ...(model ? { model: { ...model, ...(modelLabel ? { label: modelLabel } : {}) } } : {}),
+              };
+            }),
         };
         const result = await create({ environmentId, input });
         if (result._tag === "Success") onSaved(result.value);
@@ -1644,7 +1763,7 @@ function TaskEditor({
         if (!open && !busy) onClose();
       }}
     >
-      <DialogPopup>
+      <DialogPopup className="max-h-[85dvh]">
         <DialogHeader>
           <DialogTitle>{task ? "编辑任务" : "新建任务"}</DialogTitle>
           <DialogDescription>保存一个明确的目标，以及后续会话可以执行的下一步。</DialogDescription>
@@ -1726,31 +1845,197 @@ function TaskEditor({
                 />
               </div>
               {base === null ? (
-                <div className="space-y-1.5">
-                  <Label htmlFor={id + "-steps"}>步骤</Label>
-                  <Textarea
-                    id={id + "-steps"}
-                    value={steps}
-                    onChange={(event) => setSteps(event.target.value)}
-                    placeholder="每行一个步骤；可以稍后补充"
-                  />
-                  <div className="flex flex-wrap gap-2 pt-1">
+                <div className="space-y-2">
+                  <Label>步骤（阶段 + 模型）</Label>
+                  {stepRows.length ? (
+                    <div className="max-h-44 space-y-2 overflow-y-auto pr-1">
+                      {stepRows.map((row, index) => {
+                        const modelKnown =
+                          !row.modelValue ||
+                          row.modelValue === "none" ||
+                          flatModelOptions.some((option) => option.value === row.modelValue);
+                        return (
+                          <div key={row.key} className="flex items-center gap-2">
+                            <Input
+                              aria-label={"步骤 " + (index + 1) + " 名称"}
+                              list={id + "-step-titles"}
+                              value={row.title}
+                              onChange={(event) =>
+                                setStepRows((current) =>
+                                  current.map((entry) =>
+                                    entry.key === row.key
+                                      ? { ...entry, title: event.target.value.slice(0, 300) }
+                                      : entry,
+                                  ),
+                                )
+                              }
+                              placeholder="阶段或步骤名称"
+                              className="flex-1"
+                            />
+                            <Select
+                              value={modelKnown ? row.modelValue : "unavailable"}
+                              onValueChange={(value) =>
+                                setStepRows((current) =>
+                                  current.map((entry) =>
+                                    entry.key === row.key
+                                      ? { ...entry, modelValue: value ?? "none" }
+                                      : entry,
+                                  ),
+                                )
+                              }
+                            >
+                              <SelectTrigger
+                                aria-label={"步骤 " + (index + 1) + " 模型"}
+                                className="w-52 shrink-0"
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectPopup>
+                                <SelectItem value="none">不指定模型</SelectItem>
+                                {!modelKnown ? (
+                                  <SelectItem value="unavailable">
+                                    （预设模型不可用）
+                                  </SelectItem>
+                                ) : null}
+                                {flatModelOptions.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectPopup>
+                            </Select>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              aria-label={"移除步骤 " + (index + 1)}
+                              disabled={busy}
+                              onClick={() =>
+                                setStepRows((current) =>
+                                  current.filter((entry) => entry.key !== row.key),
+                                )
+                              }
+                            >
+                              ×
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      直接选一个预设，或逐条添加阶段并配模型。
+                    </p>
+                  )}
+                  <datalist id={id + "-step-titles"}>
+                    {stepTitleSuggestions.map((suggestion) => (
+                      <option key={suggestion} value={suggestion} />
+                    ))}
+                  </datalist>
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
+                      disabled={stepRows.length >= 100}
                       onClick={() =>
-                        setSteps((current) =>
-                          (current.trim() ? current.trimEnd() + "\n" : "") + "规划\n执行\n检验\n测试",
-                        )
+                        setStepRows((current) => [
+                          ...current,
+                          { key: SecureRandom.uuidV4Unsafe(), title: "", modelValue: "none" },
+                        ])
                       }
                     >
-                      插入阶段模板：规划 / 执行 / 检验 / 测试
+                      <PlusIcon aria-hidden="true" />
+                      添加步骤
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    保存后在任务详情里为每个阶段设置模型，「开始此阶段」会用该模型开启会话。
-                  </p>
+                  <div className="space-y-2 rounded-lg border p-2.5">
+                    <p className="text-xs font-medium">阶段预设</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Select
+                        value={presetId}
+                        onValueChange={(value) => setPresetId(value ?? "")}
+                      >
+                        <SelectTrigger aria-label="选择阶段预设" className="w-56">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectPopup>
+                          <SelectItem value="">不使用预设</SelectItem>
+                          {presets.map((preset) => (
+                            <SelectItem key={preset.id} value={preset.id}>
+                              {preset.name}
+                            </SelectItem>
+                          ))}
+                        </SelectPopup>
+                      </Select>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={!presetId}
+                        onClick={() => {
+                          const preset = presets.find((entry) => entry.id === presetId);
+                          if (!preset) return;
+                          setStepRows(
+                            preset.steps.map((step) => ({
+                              key: SecureRandom.uuidV4Unsafe(),
+                              title: step.title,
+                              modelValue: presetModelValue(step.model),
+                            })),
+                          );
+                        }}
+                      >
+                        应用预设
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={!presetId || presetId === "default-phases" || savedCount === 0}
+                        onClick={() => {
+                          remove(presetId);
+                          setPresetId("");
+                        }}
+                      >
+                        删除预设
+                      </Button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Input
+                        aria-label="预设名称"
+                        value={presetName}
+                        onChange={(event) => setPresetName(event.target.value.slice(0, 80))}
+                        placeholder="把当前步骤保存为预设，例如：标准开发流程"
+                        className="w-64"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={!presetName.trim() || !stepRows.some((row) => row.title.trim())}
+                        onClick={() => {
+                          const preset: TaskStepPreset = {
+                            id: SecureRandom.uuidV4Unsafe(),
+                            name: presetName.trim(),
+                            steps: stepRows
+                              .filter((row) => row.title.trim())
+                              .map((row) => {
+                                const model = parsePresetModelValue(row.modelValue);
+                                return { title: row.title.trim(), ...(model ? { model } : {}) };
+                              }),
+                          };
+                          save(preset);
+                          setPresetId(preset.id);
+                          setPresetName("");
+                        }}
+                      >
+                        保存为预设
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      预设保存在本机；应用到已建任务或在新建时一键填入，均可再单独调整。
+                    </p>
+                  </div>
                 </div>
               ) : null}
               {error ? (
