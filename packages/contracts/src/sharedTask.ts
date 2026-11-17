@@ -28,12 +28,21 @@ export const SharedTaskThread = Schema.Struct({
 });
 export type SharedTaskThread = typeof SharedTaskThread.Type;
 
+/** The model a step should run on: a provider instance plus one of its models. */
+export const SharedTaskStepModel = Schema.Struct({
+  instanceId: TrimmedNonEmptyString,
+  model: TrimmedNonEmptyString,
+  label: Schema.optional(TrimmedNonEmptyString),
+});
+export type SharedTaskStepModel = typeof SharedTaskStepModel.Type;
+
 export const SharedTaskStep = Schema.Struct({
   id: TrimmedNonEmptyString,
   title: Title,
   status: Schema.Literals(["todo", "doing", "done"]),
   assignee: Schema.optional(Title),
   thread: Schema.optional(SharedTaskThread),
+  model: Schema.optional(SharedTaskStepModel),
 });
 export type SharedTaskStep = typeof SharedTaskStep.Type;
 const Steps = Schema.Array(SharedTaskStep).check(Schema.isMaxLength(100));

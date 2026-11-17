@@ -64,7 +64,7 @@ const SharedTaskCreateTool = Tool.make("t3_task_create", {
 
 const SharedTaskUpdateTool = Tool.make("t3_task_update", {
   description:
-    "Edit a persistent task with a progress note and the version just read. Steps may have an assignee label and a linked thread; assigning does not launch or message an agent. When replacing steps preserve other assignees, threads and progress. Only supplied fields change. On conflict, read again and merge your change without overwriting another session's progress. Archive instead of deleting; archived tasks can be reopened.",
+    "Edit a persistent task with a progress note and the version just read. Steps may have an assignee label, a linked thread, and a model (provider instance plus model) that the step should run on; assigning or setting a model does not launch or message an agent. When replacing steps preserve other assignees, threads, models and progress. Only supplied fields change. On conflict, read again and merge your change without overwriting another session's progress. Archive instead of deleting; archived tasks can be reopened.",
   parameters: SharedTaskUpdateInput,
   success: SharedTask,
   failure: taskFailure,

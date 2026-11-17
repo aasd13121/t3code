@@ -36,7 +36,7 @@ export function sharedTaskMarkdown({ task, events, hasMoreHistory }: SharedTaskG
     "",
     ...task.steps.map(
       (step) =>
-        `- [${step.status === "done" ? "x" : " "}] ${step.title} · ${SHARED_TASK_STATUS_LABELS[step.status]}${step.assignee ? ` · 负责人：${step.assignee}` : ""}${step.thread ? ` · 会话：${step.thread.environmentId ? step.thread.environmentId + "/" : ""}${step.thread.threadId}` : ""}`,
+        `- [${step.status === "done" ? "x" : " "}] ${step.title} · ${SHARED_TASK_STATUS_LABELS[step.status]}${step.assignee ? ` · 负责人：${step.assignee}` : ""}${step.model ? ` · 模型：${step.model.label ?? step.model.model}（${step.model.instanceId}）` : ""}${step.thread ? ` · 会话：${step.thread.environmentId ? step.thread.environmentId + "/" : ""}${step.thread.threadId}` : ""}`,
     ),
     "",
     "## 进度记录",

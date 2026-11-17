@@ -5,9 +5,11 @@ import {
   sharedTaskMarkdown,
   sharedTaskResumePrompt,
 } from "@t3tools/client-runtime/shared-task";
+import { createModelSelection } from "@t3tools/shared/model";
 import type {
   EnvironmentId,
   ProjectId,
+  ProviderInstanceId,
   ScopedThreadRef,
   SharedTask,
   SharedTaskCreateInput,
@@ -33,14 +35,19 @@ import {
   PlusIcon,
   RefreshCwIcon,
 } from "lucide-react";
-import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 
+import { useComposerDraftStore } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
+import { useEnvironmentSettings } from "../../hooks/useSettings";
+import { getCustomModelOptionsByInstance } from "../../modelSelection";
+import { providerInstanceEntriesFor } from "../../providerInstances";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { useProjects, useQuietThreadShells } from "../../state/entities";
 import { useEnvironmentQuery, formatEnvironmentQueryError } from "../../state/query";
+import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { sharedTaskEnvironment } from "../../state/sharedTasks";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
@@ -565,6 +572,7 @@ function TaskDetail({
   const [projectId, setProjectId] = useState<string | null>(null);
   const [stepTitle, setStepTitle] = useState("");
   const [assigningStepId, setAssigningStepId] = useState<string | null>(null);
+  const [modelStepId, setModelStepId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -628,6 +636,44 @@ function TaskDetail({
       else setError("会话未创建。请确认项目仍可用。");
     } finally {
       setBusy(false);
+    }
+  };
+  const launchingPhaseRef = useRef(false);
+  const launchPhase = async (step: SharedTaskStep) => {
+    if (!task || !step.model || !selectedProject || busy || launchingPhaseRef.current) return;
+    launchingPhaseRef.current = true;
+    setError(null);
+    try {
+      const started = await newThread(scopeProjectRef(environmentId, selectedProject.id), {
+        prompt: sharedTaskResumePrompt(task.id, step.id),
+      });
+      if (!started) {
+        setError("会话未创建。请确认项目仍可用。");
+        return;
+      }
+      useComposerDraftStore.getState().setModelSelection(
+        started.draftId,
+        createModelSelection(step.model.instanceId as ProviderInstanceId, step.model.model),
+        { replaceOptions: true },
+      );
+      await mutate(
+        {
+          steps: task.steps.map((value) =>
+            value.id === step.id
+              ? {
+                  ...value,
+                  status: "doing",
+                  thread: { threadId: started.threadId, environmentId },
+                }
+              : value,
+          ),
+          ...(task.status === "todo" ? { status: "doing" } : {}),
+        },
+        "开始阶段（模型 " + (step.model.label ?? step.model.model) + "）：" + step.title,
+      );
+      onThreadOpened?.();
+    } finally {
+      launchingPhaseRef.current = false;
     }
   };
   const exportRecord = () => {
@@ -752,6 +798,7 @@ function TaskDetail({
                     </div>
                     <p className="break-words text-xs text-muted-foreground">
                       负责人：{step.assignee ?? "未分配"}
+                      {step.model ? ` · 模型：${step.model.label ?? step.model.model}` : ""}
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {step.status === "todo" ? (
@@ -774,6 +821,17 @@ function TaskDetail({
                           开始步骤
                         </Button>
                       ) : null}
+                      {step.model && !step.thread && step.status !== "done" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={!canUpdate || busy || !selectedProject}
+                          onClick={() => void launchPhase(step)}
+                        >
+                          <PlayIcon aria-hidden="true" />
+                          开始此阶段
+                        </Button>
+                      ) : null}
                       <Button
                         size="sm"
                         variant="outline"
@@ -783,6 +841,14 @@ function TaskDetail({
                         }
                       >
                         设置分工
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!canUpdate || busy}
+                        onClick={() => setModelStepId(modelStepId === step.id ? null : step.id)}
+                      >
+                        设置模型
                       </Button>
                       <Button
                         size="sm"
@@ -820,6 +886,20 @@ function TaskDetail({
                         onClose={() => setAssigningStepId(null)}
                         onSaved={() => {
                           setAssigningStepId(null);
+                          detail.refresh();
+                        }}
+                      />
+                    ) : null}
+                    {modelStepId === step.id ? (
+                      <TaskStepModelForm
+                        key={step.id}
+                        environmentId={environmentId}
+                        task={task}
+                        step={step}
+                        onRefresh={detail.refresh}
+                        onClose={() => setModelStepId(null)}
+                        onSaved={() => {
+                          setModelStepId(null);
                           detail.refresh();
                         }}
                       />
@@ -1016,6 +1096,152 @@ function TaskDetail({
         </DialogFooter>
       </DialogPopup>
     </Dialog>
+  );
+}
+
+function TaskStepModelForm({
+  environmentId,
+  task,
+  step,
+  onClose,
+  onSaved,
+  onRefresh,
+}: {
+  environmentId: EnvironmentId;
+  task: SharedTask;
+  step: SharedTaskStep;
+  onClose: () => void;
+  onSaved: () => void;
+  onRefresh: () => void;
+}) {
+  const id = useId();
+  const [base] = useState({ version: task.version, step });
+  const settings = useEnvironmentSettings(environmentId);
+  const providers =
+    useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
+  const instanceEntries = providerInstanceEntriesFor(
+    providers,
+    settings,
+    task.projectId as ProjectId | null,
+  );
+  const [instanceId, setInstanceId] = useState<string>(
+    step.model?.instanceId ?? instanceEntries[0]?.instanceId ?? "",
+  );
+  const [model, setModel] = useState<string>(step.model?.model ?? "");
+  const [busy, setBusy] = useState(false);
+  const [conflicted, setConflicted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const update = useAtomCommand(sharedTaskEnvironment.update);
+  const canUpdate = useAtomValue(sharedTaskEnvironment.update.permissionAtom(environmentId));
+  const modelOptionsByInstance = getCustomModelOptionsByInstance(
+    settings,
+    providers,
+    (instanceId || null) as ProviderInstanceId | null,
+    model || null,
+  );
+  const modelOptions = modelOptionsByInstance.get(instanceId as ProviderInstanceId) ?? [];
+  const modelChanged =
+    instanceId.trim() !== (base.step.model?.instanceId ?? "") ||
+    model.trim() !== (base.step.model?.model ?? "");
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (busy || !modelChanged) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const picked = modelOptions.find((option) => option.slug === model.trim()) ?? null;
+      const steps = task.steps.map((current) => {
+        if (current.id !== step.id) return current;
+        const next = { ...current };
+        if (model.trim() && instanceId.trim()) {
+          next.model = {
+            instanceId: instanceId.trim(),
+            model: model.trim(),
+            ...(picked ? { label: picked.shortName ?? picked.name } : {}),
+          };
+        } else delete next.model;
+        return next;
+      });
+      const result = await update({
+        environmentId,
+        input: {
+          taskId: task.id,
+          expectedVersion: conflicted ? task.version : base.version,
+          patch: { steps },
+          note: (model.trim() ? "设置步骤模型：" : "清除步骤模型：") + step.title,
+        },
+      });
+      if (result._tag === "Success") onSaved();
+      else {
+        setConflicted(true);
+        onRefresh();
+        setError(
+          formatEnvironmentQueryError(result.cause) + " 模型选择已保留；检查最新进度后再次保存。",
+        );
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form
+      className="space-y-3 border-t pt-3"
+      aria-label={"设置步骤模型：" + step.title}
+      onSubmit={(event) => void submit(event)}
+    >
+      <div className="space-y-1.5">
+        <Label htmlFor={id + "-instance"}>提供商实例</Label>
+        <Select
+          value={instanceId}
+          onValueChange={(value) => {
+            setInstanceId(value ?? "");
+            setModel("");
+          }}
+        >
+          <SelectTrigger aria-label="步骤模型提供商">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopup>
+            {instanceEntries
+              .filter((entry) => entry.enabled)
+              .map((entry) => (
+                <SelectItem key={entry.instanceId} value={entry.instanceId}>
+                  {entry.displayName}
+                </SelectItem>
+              ))}
+          </SelectPopup>
+        </Select>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={id + "-model"}>模型</Label>
+        <Select value={model || "none"} onValueChange={(value) => setModel(value === "none" ? "" : (value ?? ""))}>
+          <SelectTrigger aria-label="步骤模型">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopup>
+            <SelectItem value="none">不指定模型</SelectItem>
+            {modelOptions.map((option) => (
+              <SelectItem key={option.slug} value={option.slug}>
+                {option.shortName ?? option.name}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      </div>
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+          取消
+        </Button>
+        <Button type="submit" disabled={!canUpdate || busy || !modelChanged || !instanceId.trim()}>
+          {busy ? "正在保存…" : conflicted ? "按最新版本保存修改" : "保存模型"}
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -1508,6 +1734,23 @@ function TaskEditor({
                     onChange={(event) => setSteps(event.target.value)}
                     placeholder="每行一个步骤；可以稍后补充"
                   />
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        setSteps((current) =>
+                          (current.trim() ? current.trimEnd() + "\n" : "") + "规划\n执行\n检验\n测试",
+                        )
+                      }
+                    >
+                      插入阶段模板：规划 / 执行 / 检验 / 测试
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    保存后在任务详情里为每个阶段设置模型，「开始此阶段」会用该模型开启会话。
+                  </p>
                 </div>
               ) : null}
               {error ? (
