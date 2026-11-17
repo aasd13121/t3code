@@ -37,6 +37,17 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
+import {
+  SharedTask,
+  SharedTaskCreateInput,
+  SharedTaskError,
+  SharedTaskGetInput,
+  SharedTaskGetResult,
+  SharedTaskListInput,
+  SharedTaskProgressInput,
+  SharedTaskSnapshot,
+  SharedTaskUpdateInput,
+} from "./sharedTask.ts";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { SecretSourceCheckResult } from "./settingsSecretValue.ts";
 import { SecretReference } from "./secretReference.ts";
@@ -575,6 +586,13 @@ export const WS_METHODS = {
   serverReportClientActivity: "server.reportClientActivity",
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
+
+  sharedTasksList: "sharedTasks.list",
+  sharedTasksGet: "sharedTasks.get",
+  sharedTasksSubscribe: "sharedTasks.subscribe",
+  sharedTasksCreate: "sharedTasks.create",
+  sharedTasksUpdate: "sharedTasks.update",
+  sharedTasksProgress: "sharedTasks.progress",
 
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
   scheduledTasksUpsert: "scheduledTasks.upsert",
@@ -2157,6 +2175,38 @@ const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecyc
   stream: true,
 });
 
+const WsSharedTasksListRpc = Rpc.make(WS_METHODS.sharedTasksList, {
+  payload: SharedTaskListInput,
+  success: SharedTaskSnapshot,
+  error: Schema.Union([SharedTaskError, EnvironmentAuthorizationError]),
+});
+const WsSharedTasksGetRpc = Rpc.make(WS_METHODS.sharedTasksGet, {
+  payload: SharedTaskGetInput,
+  success: SharedTaskGetResult,
+  error: Schema.Union([SharedTaskError, EnvironmentAuthorizationError]),
+});
+const WsSharedTasksSubscribeRpc = Rpc.make(WS_METHODS.sharedTasksSubscribe, {
+  payload: SharedTaskListInput,
+  success: SharedTaskSnapshot,
+  error: Schema.Union([SharedTaskError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+const WsSharedTasksCreateRpc = Rpc.make(WS_METHODS.sharedTasksCreate, {
+  payload: SharedTaskCreateInput,
+  success: SharedTask,
+  error: Schema.Union([SharedTaskError, EnvironmentAuthorizationError]),
+});
+const WsSharedTasksUpdateRpc = Rpc.make(WS_METHODS.sharedTasksUpdate, {
+  payload: SharedTaskUpdateInput,
+  success: SharedTask,
+  error: Schema.Union([SharedTaskError, EnvironmentAuthorizationError]),
+});
+const WsSharedTasksProgressRpc = Rpc.make(WS_METHODS.sharedTasksProgress, {
+  payload: SharedTaskProgressInput,
+  success: SharedTask,
+  error: Schema.Union([SharedTaskError, EnvironmentAuthorizationError]),
+});
+
 const WsScheduledTasksSubscribeRpc = Rpc.make(WS_METHODS.scheduledTasksSubscribe, {
   payload: ScheduledTaskListInput,
   success: ScheduledTaskListResult,
@@ -2320,6 +2370,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetUsageSummaryRpc,
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,
+  WsSharedTasksListRpc,
+  WsSharedTasksGetRpc,
+  WsSharedTasksSubscribeRpc,
+  WsSharedTasksCreateRpc,
+  WsSharedTasksUpdateRpc,
+  WsSharedTasksProgressRpc,
   WsScheduledTasksSubscribeRpc,
   WsScheduledTasksUpsertRpc,
   WsScheduledTasksSetEnabledRpc,

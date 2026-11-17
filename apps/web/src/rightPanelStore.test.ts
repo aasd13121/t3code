@@ -40,6 +40,25 @@ async function reloadRightPanelStore() {
 }
 
 describe("rightPanelStore", () => {
+  it("preserves distinct module tabs across reloads and remembers a closed module", async () => {
+    const store = useRightPanelStore.getState();
+    store.openModule(refA, "shared-tasks", "任务板");
+    store.openModule(refA, "notes", "笔记");
+    store.openModule(refA, "shared-tasks", "任务板");
+    await reloadRightPanelStore();
+    const restored = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(restored.surfaces.map((surface) => surface.id)).toEqual([
+      "module:shared-tasks",
+      "module:notes",
+    ]);
+    expect(restored.activeSurfaceId).toBe("module:shared-tasks");
+    useRightPanelStore.getState().closeSurface(refA, "module:shared-tasks");
+    expect(useClosedViewStore.getState().entries[0]).toMatchObject({
+      kind: "panel-tab",
+      surface: { kind: "module", moduleId: "shared-tasks", title: "任务板" },
+    });
+  });
+
   it("opens a hosted side chat's panel actions in its parent's panel until unhosted", () => {
     const store = useRightPanelStore.getState();
     const unhost = hostRightPanel(refB, refA);

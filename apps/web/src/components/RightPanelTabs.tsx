@@ -49,6 +49,7 @@ import {
   Globe2,
   MessagesSquare,
   Plus,
+  PuzzleIcon,
   TerminalSquare,
   Volume2Icon,
   VolumeOffIcon,
@@ -112,6 +113,7 @@ import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
+import { getPanelModule, panelModules } from "../modules/panelModules";
 
 export interface RightPanelTabsProps {
   mode: PreviewPanelMode;
@@ -146,6 +148,7 @@ export interface RightPanelTabsProps {
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddFiles: () => void;
+  onAddModule?: ((moduleId: string) => void) | undefined;
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
@@ -313,10 +316,10 @@ function SurfaceMenuItem(props: {
       className={!props.available ? "data-disabled:pointer-events-auto" : undefined}
       onClick={props.onClick}
       disabled={!props.available}
-      aria-keyshortcuts={props.shortcut}
+      aria-keyshortcuts={props.shortcut || undefined}
     >
       {props.children}
-      <MenuShortcut>{props.shortcut}</MenuShortcut>
+      {props.shortcut && <MenuShortcut>{props.shortcut}</MenuShortcut>}
     </MenuItem>
   );
   if (props.available || !props.disabledReason) return item;
@@ -330,6 +333,7 @@ function RightPanelEmptyState(props: {
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddFiles: () => void;
+  onAddModule?: ((moduleId: string) => void) | undefined;
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
@@ -350,6 +354,16 @@ function RightPanelEmptyState(props: {
   const [highlight, setHighlight] = useState(-1);
 
   const actions = [
+    ...(props.onAddModule
+      ? panelModules.map((module) => ({
+          label: module.title,
+          icon: module.icon,
+          shortcut: "",
+          available: true,
+          disabledReason: "",
+          onClick: () => props.onAddModule?.(module.id),
+        }))
+      : []),
     {
       label: msg("Browser"),
       icon: Globe2,
@@ -530,7 +544,7 @@ function RightPanelEmptyState(props: {
                   >
                     {messages(action.label)}
                   </span>
-                  <Kbd>{action.shortcut}</Kbd>
+                  {action.shortcut && <Kbd>{action.shortcut}</Kbd>}
                 </button>
                 {action.label === "Browser" && props.browserProfiles.length > 1 ? (
                   <Menu>
@@ -571,7 +585,7 @@ function RightPanelEmptyState(props: {
                   >
                     {actionIcon(action, "size-4")}
                     <span className="min-w-0 flex-1 truncate">{messages(action.label)}</span>
-                    <Kbd>{action.shortcut}</Kbd>
+                    {action.shortcut && <Kbd>{action.shortcut}</Kbd>}
                   </div>
                 }
               />
@@ -590,6 +604,8 @@ function surfaceTitle(
   resolve: MessageResolver = m,
 ): string {
   switch (surface.kind) {
+    case "module":
+      return getPanelModule(surface.moduleId)?.title ?? surface.title;
     case "diff":
       return resolve(msg("Diff"));
     case "files":
@@ -675,6 +691,10 @@ function SurfaceIcon({
   pullRequestStatusSeed: PullRequestTabStatusSeed | undefined;
 }) {
   switch (surface.kind) {
+    case "module": {
+      const Icon = getPanelModule(surface.moduleId)?.icon ?? PuzzleIcon;
+      return <Icon className="size-3 shrink-0" />;
+    }
     case "preview":
       return <PreviewFavicon capturedUrl={previewCapturedUrl} url={previewUrl} />;
     case "diff":
@@ -1169,6 +1189,16 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   };
 
   const addSurfaceActions = [
+    ...(props.onAddModule
+      ? panelModules.map((module) => ({
+          label: module.title,
+          icon: module.icon,
+          shortcut: "",
+          available: true,
+          disabledReason: "",
+          onClick: () => props.onAddModule?.(module.id),
+        }))
+      : []),
     {
       label: msg("Browser"),
       icon: Globe2,
@@ -1639,6 +1669,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddTerminal={props.onAddTerminal}
             onAddDiff={props.onAddDiff}
             onAddFiles={props.onAddFiles}
+            onAddModule={props.onAddModule}
             onAddPullRequest={props.onAddPullRequest}
             onAddPullRequests={props.onAddPullRequests}
             onAddDevice={props.onAddDevice}

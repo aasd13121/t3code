@@ -48,6 +48,23 @@ describe("RPC authorization scopes", () => {
     }
   });
 
+  it("lets readers inspect shared tasks and requires operate scope to change their records", () => {
+    for (const method of [
+      WS_METHODS.sharedTasksList,
+      WS_METHODS.sharedTasksGet,
+      WS_METHODS.sharedTasksSubscribe,
+    ]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);
+    }
+    for (const method of [
+      WS_METHODS.sharedTasksCreate,
+      WS_METHODS.sharedTasksUpdate,
+      WS_METHODS.sharedTasksProgress,
+    ]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
+    }
+  });
+
   it("keeps triage, which seeds an agent that reads logs and the database, behind operate scope", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.serverPrepareTriage)).toBe(
       AuthOrchestrationOperateScope,

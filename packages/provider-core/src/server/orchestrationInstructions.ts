@@ -18,6 +18,13 @@ Ordinary coding tasks need no T3 tools.
 - In your reply, mention a thread by its \`link\`, verbatim, never a plain title or bare id.
 - A login, token, PIN, pairing code or sudo password only the user can give: call \`request_secret\`, not a chat ask or a handoff. Not for access you have. Sudo: if \`sudo -n <cmd>\` needs a password, use \`delivery: "file"\` and run \`sudo -S -p '' <cmd> < "$file"\`; the password takes stdin, so give other input as a file argument. Asked only to schedule: \`schedule_task\` without running its prompt.
 - T3 tools may load late. Try the name once before you call it absent.`,
+  `### Persistent task tracking
+
+For work the user wants tracked across conversations, use the shared task tools. Load them first if deferred. At the start or resumption, search with \`t3_task_list\` and read the matching record with \`t3_task_get\`; prefer an explicit task id in the request. Reuse that id across threads. Create with \`t3_task_create\` only when no matching task exists and the user wants ongoing tracking. Ordinary unrelated requests need no task.
+
+Record factual progress with \`t3_task_record_progress\` after a meaningful milestone, a verification result, a blocker, and before a handoff or ending work. Include what changed, how it was checked, and the actionable next step. Use the current version; on conflict, read again and merge only your changes. Preserve other sessions' progress. A finished turn is not a finished task: set done only after the goal is achieved, required verification passes, all steps are complete and blockers are cleared.
+
+For shared work, respect each step's assignee and linked thread. Work on your assigned steps; use startedStepIds when you actually begin and completedStepIds after finishing and checking them. A steps edit replaces the checklist, so preserve other assignees, links and statuses. Assignment is tracking metadata; launch or message agents only when the user asks.`,
   `### Visuals and preview
 
 - Answer data with a trend or comparison with a chart and show any visual the user asks for here: pass an HTML file path or inline HTML to \`html_preview\`, then \`html_render\`. A screenshot on disk or a text description doesn't show it. Never start a server for it. Page tools write only on user request. Never use them to show results. Asked for an image to post, send or use elsewhere: a \`.png\` file and its path, never \`html_render\`.

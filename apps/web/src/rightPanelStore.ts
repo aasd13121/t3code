@@ -25,6 +25,7 @@ const RIGHT_PANEL_KINDS = [
   "pull-requests",
   "issue",
   "side-chat",
+  "module",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -50,6 +51,7 @@ export type RightPanelSurface =
       splitDirection?: "horizontal" | "vertical";
     }
   | { id: "diff"; kind: "diff" }
+  | { id: `module:${string}`; kind: "module"; moduleId: string; title: string }
   | {
       id: "files";
       kind: "files";
@@ -154,8 +156,9 @@ interface RightPanelStoreState {
   ) => boolean;
   open: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "issue" | "side-chat">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "issue" | "side-chat" | "module">,
   ) => void;
+  openModule: (ref: ScopedThreadRef, moduleId: string, title: string) => void;
   openSideChat: (ref: ScopedThreadRef, threadId: ThreadId) => void;
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
@@ -221,7 +224,7 @@ interface RightPanelStoreState {
   toggleVisibility: (ref: ScopedThreadRef) => void;
   toggle: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "issue" | "side-chat">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "issue" | "side-chat" | "module">,
   ) => void;
   setThreadPanelOpen: (
     ref: ScopedThreadRef,
@@ -246,7 +249,7 @@ const DEFAULT_THREAD_PANEL_VISIBILITY: ThreadPanelVisibility = {
 const singletonSurface = (
   kind: Exclude<
     RightPanelKind,
-    "file" | "preview" | "terminal" | "pull-request" | "issue" | "side-chat"
+    "file" | "preview" | "terminal" | "pull-request" | "issue" | "side-chat" | "module"
   >,
 ): RightPanelSurface => {
   switch (kind) {
@@ -569,6 +572,22 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                 ? validThreadState.surfaces.flatMap<RightPanelSurface>((surface) => {
                     const kind = (surface as { kind?: string }).kind;
                     if (kind === "plan" || kind === "agents") return [];
+                    if (surface.kind === "module") {
+                      if (
+                        typeof surface.moduleId !== "string" ||
+                        !/^[a-z0-9][a-z0-9.-]{0,79}$/.test(surface.moduleId) ||
+                        surface.id !== `module:${surface.moduleId}`
+                      )
+                        return [];
+                      return [
+                        {
+                          id: surface.id,
+                          kind: "module",
+                          moduleId: surface.moduleId,
+                          title: typeof surface.title === "string" ? surface.title : "模块",
+                        },
+                      ];
+                    }
                     if (
                       (surface.kind === "file" || surface.kind === "files") &&
                       "folderTrail" in surface &&
@@ -792,6 +811,12 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             }
             return upsertSurface(current, singletonSurface(kind));
           }),
+        ),
+      openModule: (ref, moduleId, title) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) =>
+            upsertSurface(current, { id: `module:${moduleId}`, kind: "module", moduleId, title }),
+          ),
         ),
       openDevice: (ref, target, automatic = false) =>
         set((state) =>

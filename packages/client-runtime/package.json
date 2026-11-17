@@ -267,6 +267,14 @@
       "types": "./src/state/deviceHubAccess.ts",
       "default": "./src/state/deviceHubAccess.ts"
     },
+    "./shared-task": {
+      "types": "./src/shared-task.ts",
+      "default": "./src/shared-task.ts"
+    },
+    "./state/sharedTasks": {
+      "types": "./src/state/sharedTasks.ts",
+      "default": "./src/state/sharedTasks.ts"
+    },
     "./state/peerLinks": {
       "types": "./src/state/peerLinks.ts",
       "default": "./src/state/peerLinks.ts"

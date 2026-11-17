@@ -1,5 +1,6 @@
 import type { AnyRouter } from "@tanstack/react-router";
 import { msg } from "gt-react";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 
 import {
   dispatchCommandPalette,
@@ -16,6 +17,8 @@ import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { type CommandHandler, type CommandScopeOptions, registerCommands } from "./dispatcher";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { resolveThreadRouteTarget } from "../threadRoutes";
+import { openPanelModule } from "../modules/panelModuleActions";
+import { useComposerDraftStore } from "../composerDraftStore";
 
 function consume(event: KeyboardEvent): void {
   event.preventDefault();
@@ -41,7 +44,12 @@ export function installCommandPaletteCommands(
 ): () => void {
   const readRouteThreadRef = () => {
     const target = resolveThreadRouteTarget(router.state.matches.at(-1)?.params ?? {});
-    return target?.kind === "server" ? target.threadRef : null;
+    if (target?.kind === "server") return target.threadRef;
+    const draft =
+      target?.kind === "draft"
+        ? useComposerDraftStore.getState().getDraftSession(target.draftId)
+        : null;
+    return draft ? scopeThreadRef(draft.environmentId, draft.threadId) : null;
   };
 
   // A child search (files, contents) goes back to the palette on Escape before
@@ -98,6 +106,13 @@ export function installCommandPaletteCommands(
         consume(event);
         dispatchCommandPalette({ _tag: "SetOpen", open: false });
         void router.navigate({ to: "/usage" });
+      },
+      "tasks.open": (event) => {
+        consume(event);
+        dispatchCommandPalette({ _tag: "SetOpen", open: false });
+        const threadRef = readRouteThreadRef();
+        if (threadRef) openPanelModule(threadRef, "shared-tasks");
+        else void router.navigate({ to: "/tasks" });
       },
       "commandPalette.toggle": toggleOverlay("commandPalette.toggle"),
       "filePicker.toggle": toggleOverlay("filePicker.toggle"),

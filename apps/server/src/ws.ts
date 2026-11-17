@@ -125,6 +125,7 @@ import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts"
 import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts";
 import * as DocumentText from "./provider/DocumentText.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
+import * as SharedTasks from "./sharedTasks/SharedTaskService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
 import {
@@ -1480,6 +1481,7 @@ export const layerWsRpc = (
       const commandOutputHub = yield* CommandOutputHub.CommandOutputHub;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
+      const sharedTasks = yield* SharedTasks.SharedTaskService;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const guestShares = yield* GuestShareService.GuestShareService;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -2324,6 +2326,12 @@ export const layerWsRpc = (
           ),
         [ORCHESTRATION_V2_WS_METHODS.subscribePromptSuggestion]: (input) =>
           providerSessionManager.subscribePromptSuggestion(input.threadId),
+        [WS_METHODS.sharedTasksList]: (input) => sharedTasks.list(input),
+        [WS_METHODS.sharedTasksGet]: (input) => sharedTasks.get(input),
+        [WS_METHODS.sharedTasksSubscribe]: (input) => sharedTasks.subscribe(input),
+        [WS_METHODS.sharedTasksCreate]: (input) => sharedTasks.create(input, { actor: "user" }),
+        [WS_METHODS.sharedTasksUpdate]: (input) => sharedTasks.update(input, { actor: "user" }),
+        [WS_METHODS.sharedTasksProgress]: (input) => sharedTasks.progress(input, { actor: "user" }),
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>
           scheduledTasks.subscribeList().pipe(Stream.map(withVisibleWebhookUrls)),
         [WS_METHODS.scheduledTasksUpsert]: (input) => scheduledTasks.upsert(input),

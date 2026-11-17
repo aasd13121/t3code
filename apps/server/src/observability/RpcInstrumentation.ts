@@ -246,6 +246,12 @@ const RPC_AGGREGATES = {
   [WS_METHODS.subscribeServerConfig]: "server",
   [WS_METHODS.subscribeServerLifecycle]: "server",
   [WS_METHODS.subscribeAuthAccess]: "auth",
+  [WS_METHODS.sharedTasksList]: "sharedTasks",
+  [WS_METHODS.sharedTasksGet]: "sharedTasks",
+  [WS_METHODS.sharedTasksSubscribe]: "sharedTasks",
+  [WS_METHODS.sharedTasksCreate]: "sharedTasks",
+  [WS_METHODS.sharedTasksUpdate]: "sharedTasks",
+  [WS_METHODS.sharedTasksProgress]: "sharedTasks",
 } as const satisfies Readonly<Record<WsRpcMethod, string>>;
 
 const RPC_SPAN_PREFIX = "ws.rpc";

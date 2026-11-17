@@ -58,6 +58,40 @@ in a new thread's model picker to add or remove them. A regular click returns to
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
 
+## Track a task across threads
+
+On web and desktop, choose **任务板** in the right panel controls, use **打开任务板**
+in the command palette, or press `Ctrl+Alt+T`. The board opens beside the current
+thread, including a draft. Opening task details keeps that conversation in place.
+Use **任务** in the sidebar to open the full task workspace.
+
+Save a goal, next step, and checklist independently of any thread. The task remains
+available after switching threads or restarting the server.
+
+Choose **在新会话跟进** in a task's details to prepare a new thread in its project.
+Send the prepared message to resume work. The agent reads the latest task record
+and records meaningful progress, verification, blockers, and the next step. A
+thread ending does not complete the task. Complete its steps and clear blockers
+before marking it done.
+
+If the project already has an unsent draft, following a task reuses it and keeps
+any text you wrote. Use **复制跟进指令** to combine the task instructions with that
+text before sending.
+
+For shared work, use **设置分工** on a step to name its owner and choose their
+existing conversation. **复制步骤指令** prepares instructions for just that step;
+send them in the owner's conversation to start. The task card and details group
+progress by owner, and **打开负责人会话** returns to their work. Owners record when
+their steps begin and finish while preserving everyone else's assignments and
+progress. Clear the owner or select **不关联会话** to remove an assignment or link.
+
+The right panel uses the current thread's environment. In the full task workspace,
+choose the connected environment that owns the task. Progress saved by another
+thread appears in the task panel. If another writer updates a task while you are
+editing, your input stays available so you can review and save against the latest
+record. Archived tasks remain accessible through the status filter and can be
+reopened.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.

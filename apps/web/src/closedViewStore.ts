@@ -60,6 +60,13 @@ const isClosedViewEntry = (entry: unknown): entry is ClosedViewEntry => {
   const surface = view.surface;
   if (!surface || typeof surface.id !== "string") return false;
   switch (surface.kind) {
+    case "module":
+      return (
+        typeof surface.moduleId === "string" &&
+        /^[a-z0-9][a-z0-9.-]{0,79}$/.test(surface.moduleId) &&
+        surface.id === `module:${surface.moduleId}` &&
+        typeof surface.title === "string"
+      );
     case "diff":
     case "files":
     case "pull-requests":
