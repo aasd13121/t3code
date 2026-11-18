@@ -126,7 +126,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.upstream.outputs.version }}
         run: |
-          gh workflow run release-fork.yml --ref task-board -f version="$VERSION"
+          # gh resolves the repo from git remotes when --repo is omitted, and it
+          # prefers a remote named "upstream" over "origin" — this job adds
+          # upstream=pingdotgg/t3code, so every gh call MUST pin
+          # --repo "$GITHUB_REPOSITORY" or it would target the upstream repo.
+          gh workflow run release-fork.yml --ref task-board -f version="$VERSION" --repo "$GITHUB_REPOSITORY"
           echo "Dispatched release-fork.yml on task-board for v$VERSION."
 
       - name: Open issue on rebase conflict
@@ -139,7 +143,7 @@ jobs:
         run: |
           set -euo pipefail
           title="Auto-follow upstream: rebase conflict for $UPSTREAM_TAG"
-          existing="$(gh issue list --state open --search "in:title $UPSTREAM_TAG" --json number --jq '.[0].number' 2>/dev/null || true)"
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title $UPSTREAM_TAG" --json number --jq '.[0].number' 2>/dev/null || true)"
           body="Automatic rebase of \`task-board\` onto upstream nightly \`$UPSTREAM_TAG\` (version \`$VERSION\`) conflicted and could not be completed automatically.
 
           Resolve the conflict locally:
@@ -153,7 +157,7 @@ jobs:
 
           Failed run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           if [[ -z "$existing" ]]; then
-            gh issue create --title "$title" --body "$body" --label "auto-follow-conflict" 2>/dev/null || gh issue create --title "$title" --body "$body"
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body" --label "auto-follow-conflict" 2>/dev/null || gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
           else
-            gh issue comment "$existing" --body "Still conflicting on $UPSTREAM_TAG. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "Still conflicting on $UPSTREAM_TAG. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           fi
