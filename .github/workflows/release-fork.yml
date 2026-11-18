@@ -36,6 +36,12 @@ env:
   # gating does for non-pingdotgg repos.
   T3CODE_TELEMETRY_CHANNEL: dev
 
+# Group by version so a re-trigger (e.g. follow-upstream retry) does not run
+# two builds for the same version in parallel. Don't cancel an in-flight build.
+concurrency:
+  group: release-fork-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   wsl-runtime:
     name: Build wsl-runtime (Linux CLI archive)

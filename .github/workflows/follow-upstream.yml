@@ -1,0 +1,159 @@
+name: Follow upstream nightly
+
+# Periodically check pingdotgg/t3code for a new nightly tag. If one exists and
+# the fork has not yet published a release for it, rebase task-board onto the
+# new tag and dispatch release-fork.yml to build + publish. On rebase conflict,
+# abort and open an issue for manual resolution.
+#
+# SCHEDULED runs only fire from the repository's DEFAULT branch. If the default
+# is `main`, this workflow must live on `main` (Option A); if you switch the
+# default to `task-board`, it fires from there (Option B). Either way it checks
+# out task-board for the actual rebase and dispatches release-fork.yml on
+# task-board. Manual workflow_dispatch works from any branch that has this file.
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # every 6 hours
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: Optional specific upstream nightly tag to follow (e.g. v0.1.11-nightly.20261118.1234). Defaults to the latest.
+        required: false
+
+permissions:
+  contents: write # push rebased task-board
+  actions: write # dispatch release-fork.yml
+  issues: write # open an issue on rebase conflict
+
+concurrency:
+  group: follow-upstream
+  cancel-in-progress: false
+
+jobs:
+  follow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.repository == 'mmpyd/t3code'
+    steps:
+      - name: Checkout fork (full history)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: task-board
+          fetch-depth: 0
+
+      - name: Configure git and upstream remote
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+
+      - name: Resolve latest upstream nightly tag
+        id: upstream
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.upstream_tag }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$INPUT_TAG" ]]; then
+            tag="$INPUT_TAG"
+          else
+            # List upstream nightly tags without fetching, pick the newest by
+            # version sort. CI runners are US-based, so direct ls-remote is fast
+            # (the ghfast.top proxy is only needed from the user's China link).
+            tag="$(git ls-remote --tags upstream 'v*-nightly.*' \
+                   | awk -F'refs/tags/' '{print $NF}' \
+                   | sed 's/\^{}$//' \
+                   | sort -V | tail -1)"
+          fi
+          if [[ -z "$tag" ]]; then
+            echo "No upstream nightly tag found."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version="${tag#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Latest upstream nightly: $tag ($version)"
+
+      - name: Fetch upstream tag commit
+        if: steps.upstream.outputs.skip != 'true'
+        shell: bash
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+        run: git fetch upstream "refs/tags/$UPSTREAM_TAG:refs/tags/$UPSTREAM_TAG" --no-recurse-submodules
+
+      - name: Skip if release already published
+        id: dedup
+        if: steps.upstream.outputs.skip != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.upstream.outputs.version }}
+        run: |
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release v$VERSION already published. Up to date."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "New upstream nightly to process: v$VERSION"
+          fi
+
+      - name: Rebase task-board onto upstream nightly
+        if: steps.dedup.outputs.skip != 'true'
+        shell: bash
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! git rebase "$UPSTREAM_TAG" task-board; then
+            git rebase --abort 2>/dev/null || true
+            echo "::error::Rebase of task-board onto $UPSTREAM_TAG conflicted. Manual resolution required."
+            echo "rebase_conflict=true" >> "$GITHUB_ENV"
+            exit 1
+          fi
+          echo "task-board rebased onto $UPSTREAM_TAG."
+
+      - name: Push rebased task-board
+        if: steps.dedup.outputs.skip != 'true' && env.rebase_conflict != 'true'
+        shell: bash
+        run: git push origin task-board --force-with-lease
+
+      - name: Dispatch release-fork workflow
+        if: steps.dedup.outputs.skip != 'true' && env.rebase_conflict != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.upstream.outputs.version }}
+        run: |
+          gh workflow run release-fork.yml --ref task-board -f version="$VERSION"
+          echo "Dispatched release-fork.yml on task-board for v$VERSION."
+
+      - name: Open issue on rebase conflict
+        if: failure() && env.rebase_conflict == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+          VERSION: ${{ steps.upstream.outputs.version }}
+        run: |
+          set -euo pipefail
+          title="Auto-follow upstream: rebase conflict for $UPSTREAM_TAG"
+          existing="$(gh issue list --state open --search "in:title $UPSTREAM_TAG" --json number --jq '.[0].number' 2>/dev/null || true)"
+          body="Automatic rebase of \`task-board\` onto upstream nightly \`$UPSTREAM_TAG\` (version \`$VERSION\`) conflicted and could not be completed automatically.
+
+          Resolve the conflict locally:
+          \`\`\`
+          git fetch upstream refs/tags/$UPSTREAM_TAG:refs/tags/$UPSTREAM_TAG
+          git rebase $UPSTREAM_TAG task-board
+          # resolve conflicts, then:
+          git push origin task-board --force-with-lease
+          \`\`\`
+          Then re-run this workflow or dispatch \`release-fork.yml\` with version \`$VERSION\`.
+
+          Failed run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if [[ -z "$existing" ]]; then
+            gh issue create --title "$title" --body "$body" --label "auto-follow-conflict" 2>/dev/null || gh issue create --title "$title" --body "$body"
+          else
+            gh issue comment "$existing" --body "Still conflicting on $UPSTREAM_TAG. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fi
