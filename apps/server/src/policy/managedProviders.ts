@@ -408,6 +408,7 @@ export function makeManagedProviders(
       providerInstances: providerInstances as ServerSettings["providerInstances"],
       // An allow-list names agent drivers; text generators would send code to any other API.
       ...(allowed === undefined ? {} : { textGenerators: {} }),
+      ...(allowed === undefined ? {} : { imageGenerators: {} }),
       sourceControlWriterModelSelection: allowedSelection(
         settings,
         settings.sourceControlWriterModelSelection,

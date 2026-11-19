@@ -1739,7 +1739,7 @@ function OpenCommandPaletteDialog(props: {
     kind: "action",
     value: "action:tasks",
     searchTerms: ["tasks", "todo", "progress", "tracking", "任务", "待办", "进度"],
-    title: "打开任务板",
+    title: gt("Open task board"),
     shortcutCommand: "tasks.open",
     icon: <ListTodoIcon className={ITEM_ICON_CLASS} />,
     run: async () => {

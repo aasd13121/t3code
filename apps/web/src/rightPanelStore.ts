@@ -156,7 +156,10 @@ interface RightPanelStoreState {
   ) => boolean;
   open: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "issue" | "side-chat" | "module">,
+    kind: Exclude<
+      RightPanelKind,
+      "file" | "terminal" | "pull-request" | "issue" | "side-chat" | "module"
+    >,
   ) => void;
   openModule: (ref: ScopedThreadRef, moduleId: string, title: string) => void;
   openSideChat: (ref: ScopedThreadRef, threadId: ThreadId) => void;
@@ -224,7 +227,10 @@ interface RightPanelStoreState {
   toggleVisibility: (ref: ScopedThreadRef) => void;
   toggle: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "issue" | "side-chat" | "module">,
+    kind: Exclude<
+      RightPanelKind,
+      "file" | "terminal" | "pull-request" | "issue" | "side-chat" | "module"
+    >,
   ) => void;
   setThreadPanelOpen: (
     ref: ScopedThreadRef,
@@ -584,7 +590,8 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                           id: surface.id,
                           kind: "module",
                           moduleId: surface.moduleId,
-                          title: typeof surface.title === "string" ? surface.title : "模块",
+                          title:
+                            typeof surface.title === "string" ? surface.title : m(msg("Module")),
                         },
                       ];
                     }

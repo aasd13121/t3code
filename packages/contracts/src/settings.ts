@@ -974,6 +974,15 @@ export const TextGeneratorConfig = Schema.Struct({
 });
 export type TextGeneratorConfig = typeof TextGeneratorConfig.Type;
 
+/** An image-generation API endpoint saved for future image-generation features. */
+export const ImageGeneratorConfig = Schema.Struct({
+  label: Schema.optional(TrimmedNonEmptyString),
+  baseUrl: TextGeneratorBaseUrl,
+  apiKey: SettingsSecretValue.pipe(Schema.withDecodingDefault(Effect.succeed("")), secretSetting),
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+});
+export type ImageGeneratorConfig = typeof ImageGeneratorConfig.Type;
+
 export const TextGeneratorModel = Schema.Struct({
   id: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
@@ -1585,6 +1594,9 @@ export const ServerSettings = Schema.Struct({
   textGenerators: Schema.Record(ProviderInstanceId, TextGeneratorConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  imageGenerators: Schema.Record(ProviderInstanceId, ImageGeneratorConfig).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   secretProviders: Schema.Record(SecretProviderId, SecretProviderConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
@@ -1977,6 +1989,9 @@ export const ServerSettingsPatch = Schema.Struct({
   textGenerators: Schema.optionalKey(
     Schema.Record(ProviderInstanceId, Schema.NullOr(TextGeneratorConfig)),
   ),
+  imageGenerators: Schema.optionalKey(
+    Schema.Record(ProviderInstanceId, Schema.NullOr(ImageGeneratorConfig)),
+  ),
   secretProviders: Schema.optionalKey(
     Schema.Record(SecretProviderId, Schema.NullOr(SecretProviderConfigWrite)),
   ),
@@ -2013,6 +2028,7 @@ export function requiredScopesForServerSettingsPatch(
       key === "providerInstances" ||
       key === "usageLimitSources" ||
       key === "textGenerators" ||
+      key === "imageGenerators" ||
       key === "secretProviders"
     ) {
       changesProviders = true;

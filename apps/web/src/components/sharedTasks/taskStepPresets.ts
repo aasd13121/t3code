@@ -1,6 +1,8 @@
 import * as Schema from "effect/Schema";
+import { msg } from "gt-react";
 
 import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { m } from "../../i18n/messages";
 
 /** A model reference inside a preset step: provider instance plus one of its models. */
 export const TaskStepPresetModel = Schema.Struct({
@@ -26,10 +28,15 @@ export type TaskStepPreset = typeof TaskStepPreset.Type;
 const StoredPresets = Schema.Array(TaskStepPreset).check(Schema.isMaxLength(50));
 
 /** Ships with the board; cannot be deleted from the picker. */
-export const DEFAULT_STEP_PRESET: TaskStepPreset = {
+const DEFAULT_STEP_PRESET: TaskStepPreset = {
   id: "default-phases",
-  name: "规划 / 执行 / 检验 / 测试",
-  steps: [{ title: "规划" }, { title: "执行" }, { title: "检验" }, { title: "测试" }],
+  name: m(msg("Plan / Execute / Review / Test")),
+  steps: [
+    { title: m(msg("Plan")) },
+    { title: m(msg("Execute")) },
+    { title: m(msg("Review")) },
+    { title: m(msg("Test")) },
+  ],
 };
 
 const STORAGE_KEY = "t3code:task-step-presets:v1";
@@ -46,7 +53,7 @@ export function useTaskStepPresets() {
 }
 
 /** Suggested step titles for inputs: the built-in phases plus every preset's titles. */
-export function useStepTitleSuggestions(presets: ReadonlyArray<TaskStepPreset>): string[] {
+export function stepTitleSuggestions(presets: ReadonlyArray<TaskStepPreset>): string[] {
   return collectTitles(presets);
 }
 
@@ -58,9 +65,7 @@ function collectTitles(presets: ReadonlyArray<TaskStepPreset>): string[] {
 }
 
 /** Encodes a preset model as a single select value; "none" means no model. */
-export function presetModelValue(
-  model: { instanceId: string; model: string } | undefined,
-): string {
+export function presetModelValue(model: { instanceId: string; model: string } | undefined): string {
   return model ? JSON.stringify([model.instanceId, model.model]) : "none";
 }
 

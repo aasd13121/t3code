@@ -1,3 +1,5 @@
+// The task board's copy is intentionally authored in Chinese for this MVP; catalog migration is tracked separately.
+// oxlint-disable t3code/no-untranslated-copy -- task board copy migration is tracked separately
 import { useAtomValue } from "@effect/atom-react";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -37,6 +39,7 @@ import {
 } from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import * as SecureRandom from "effect/crypto/SecureRandom";
+import { T, useGT } from "gt-react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
@@ -71,7 +74,7 @@ import { Textarea } from "../ui/textarea";
 import {
   parsePresetModelValue,
   presetModelValue,
-  useStepTitleSuggestions,
+  stepTitleSuggestions as getStepTitleSuggestions,
   useTaskStepPresets,
   type TaskStepPreset,
 } from "./taskStepPresets.ts";
@@ -117,8 +120,9 @@ function StatusBadge({ status }: { status: SharedTaskStatus }) {
 }
 
 function TaskBoardFrame({ panel, children }: { panel: boolean; children: ReactNode }) {
+  const gt = useGT();
   return panel ? (
-    <section aria-label="共享任务板" className="flex h-full min-h-0 min-w-0 flex-col">
+    <section aria-label={gt("Shared task board")} className="flex h-full min-h-0 min-w-0 flex-col">
       {children}
     </section>
   ) : (
@@ -140,6 +144,7 @@ export function SharedTasksBoard(search: {
   mode: "page" | "panel";
   projectId?: ProjectId | null;
 }) {
+  const gt = useGT();
   const navigate = useNavigate();
   const panel = search.mode === "panel";
   const [panelTaskId, setPanelTaskId] = useState<string | undefined>(search.taskId);
@@ -218,10 +223,17 @@ export function SharedTasksBoard(search: {
       <header className="flex shrink-0 items-center gap-3 border-b px-4 py-3">
         {panel ? null : <SidebarTrigger />}
         <ListTodoIcon aria-hidden="true" className="size-5 text-muted-foreground" />
-        <h1 className="min-w-0 flex-1 text-base font-semibold">{panel ? "任务板" : "任务"}</h1>
-        <Button variant="outline" size="sm" onClick={snapshot.refresh} aria-label="刷新任务">
+        <h1 className="min-w-0 flex-1 text-base font-semibold">
+          {gt(panel ? "Task board" : "Tasks")}
+        </h1>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={snapshot.refresh}
+          aria-label={gt("Refresh tasks")}
+        >
           <RefreshCwIcon aria-hidden="true" />
-          刷新
+          <T>Refresh</T>
         </Button>
         <Button
           size="sm"
@@ -229,15 +241,20 @@ export function SharedTasksBoard(search: {
           disabled={!canCreate || environmentId === null}
         >
           <PlusIcon aria-hidden="true" />
-          新建任务
+          <T>New task</T>
         </Button>
       </header>
       <ScrollArea className="min-h-0 flex-1">
         <TaskBoardContent panel={panel}>
           <div>
-            <h2 className="text-xl font-semibold">持续跟进</h2>
+            <h2 className="text-xl font-semibold">
+              <T>Ongoing tasks</T>
+            </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              任务独立保存。切换会话后，目标、进度和下一步仍在这里。
+              <T>
+                Tasks are saved independently. Goals, progress, and next steps stay here when you
+                switch sessions.
+              </T>
             </p>
           </div>
           <div
@@ -247,7 +264,9 @@ export function SharedTasksBoard(search: {
           >
             {panel ? null : (
               <div className="space-y-1.5">
-                <Label>环境</Label>
+                <Label>
+                  <T>Environment</T>
+                </Label>
                 <Select
                   value={environmentId ?? ""}
                   onValueChange={(value) => {
@@ -258,8 +277,8 @@ export function SharedTasksBoard(search: {
                       });
                   }}
                 >
-                  <SelectTrigger aria-label="任务所在环境">
-                    <SelectValue placeholder="选择环境" />
+                  <SelectTrigger aria-label={gt("Task environment")}>
+                    <SelectValue placeholder={gt("Select environment")} />
                   </SelectTrigger>
                   <SelectPopup>
                     {environments.map((env) => (
@@ -278,7 +297,9 @@ export function SharedTasksBoard(search: {
                 setQuery(queryDraft.trim());
               }}
             >
-              <Label htmlFor={queryId}>搜索</Label>
+              <Label htmlFor={queryId}>
+                <T>Search</T>
+              </Label>
               <div className="flex gap-2">
                 <Input
                   id={queryId}
@@ -287,22 +308,28 @@ export function SharedTasksBoard(search: {
                     setQueryDraft(event.target.value.slice(0, 300));
                     if (!event.target.value.trim()) setQuery("");
                   }}
-                  placeholder="标题或目标，按回车搜索"
+                  placeholder={gt("Search title or goal")}
                 />
                 <Button type="submit" variant="outline" size="sm">
-                  搜索
+                  <T>Search</T>
                 </Button>
               </div>
             </form>
             <div className="space-y-1.5">
-              <Label>状态</Label>
+              <Label>
+                <T>Status</T>
+              </Label>
               <Select value={status} onValueChange={(value) => setStatus(value ?? "active")}>
                 <SelectTrigger aria-label="筛选任务状态">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectPopup>
-                  <SelectItem value="active">正在跟进</SelectItem>
-                  <SelectItem value="all">全部未归档</SelectItem>
+                  <SelectItem value="active">
+                    <T>Active</T>
+                  </SelectItem>
+                  <SelectItem value="all">
+                    <T>All unarchived</T>
+                  </SelectItem>
                   {Object.entries(statusLabels).map(([value, label]) => (
                     <SelectItem key={value} value={value}>
                       {label}
@@ -312,13 +339,17 @@ export function SharedTasksBoard(search: {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>标签</Label>
+              <Label>
+                <T>Tags</T>
+              </Label>
               <Select value={tag} onValueChange={(value) => setTag(value ?? "all")}>
-                <SelectTrigger aria-label="筛选任务标签">
+                <SelectTrigger aria-label={gt("Filter tasks by tag")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectPopup>
-                  <SelectItem value="all">全部标签</SelectItem>
+                  <SelectItem value="all">
+                    <T>All tags</T>
+                  </SelectItem>
                   {tags.map((value) => (
                     <SelectItem key={value} value={value}>
                       {value}
@@ -330,7 +361,10 @@ export function SharedTasksBoard(search: {
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              {visible.length} 项任务{snapshot.isPending ? " · 正在同步" : ""}
+              {gt("{count} tasks{sync}", {
+                count: visible.length,
+                sync: snapshot.isPending ? ` · ${gt("Syncing")}` : "",
+              })}
             </p>
             <Button
               size="sm"
@@ -339,7 +373,7 @@ export function SharedTasksBoard(search: {
               onClick={() => setFocusedOnly(!focusedOnly)}
             >
               <PinIcon aria-hidden="true" />
-              只看关注
+              <T>Focused only</T>
             </Button>
           </div>
           {error || snapshot.error ? (
@@ -352,25 +386,29 @@ export function SharedTasksBoard(search: {
           ) : null}
           {environmentId === null ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
-              连接一个环境后即可管理任务。
+              <T>Connect an environment to manage tasks.</T>
             </p>
           ) : snapshot.data === null && snapshot.isPending ? (
             <p role="status" className="py-10 text-center text-sm text-muted-foreground">
-              正在读取任务…
+              <T>Loading tasks…</T>
             </p>
           ) : visible.length === 0 ? (
             <div className="rounded-xl border border-dashed p-10 text-center">
               <ListTodoIcon aria-hidden="true" className="mx-auto size-8 text-muted-foreground" />
               <h3 className="mt-4 font-medium">
-                {tasks.length ? "没有符合筛选条件的任务" : "从一个需要持续跟进的目标开始"}
+                {gt(
+                  tasks.length
+                    ? "No tasks match these filters"
+                    : "Start with a goal to track over time",
+                )}
               </h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                保存目标和下一步，让后续会话接着工作。
+                <T>Save a goal and next step so a later session can continue.</T>
               </p>
               {tasks.length === 0 ? (
                 <div className="mt-5">
                   <Button onClick={() => setCreating(true)} disabled={!canCreate}>
-                    新建任务
+                    <T>New task</T>
                   </Button>
                 </div>
               ) : null}
@@ -391,12 +429,18 @@ export function SharedTasksBoard(search: {
           )}
           {snapshot.data && snapshot.data.total > tasks.length ? (
             <p className="text-sm text-muted-foreground">
-              已加载最近 {tasks.length} 项。搜索标题或目标可以查找更早的任务。
+              <T>
+                Showing the {tasks.length} most recent tasks. Search by title or goal to find older
+                tasks.
+              </T>
             </p>
           ) : null}
           {!canCreate && environmentId !== null ? (
             <p className="text-sm text-muted-foreground">
-              当前连接可查看任务。记录进度需要此环境的操作权限。
+              <T>
+                This connection can view tasks. Editing progress requires write access to this
+                environment.
+              </T>
             </p>
           ) : null}
         </TaskBoardContent>
@@ -584,7 +628,7 @@ function TaskDetail({
   const [error, setError] = useState<string | null>(null);
   const { presets: detailPresets } = useTaskStepPresets();
   const [detailPresetId, setDetailPresetId] = useState("");
-  const detailTitleSuggestions = useStepTitleSuggestions(detailPresets);
+  const detailTitleSuggestions = getStepTitleSuggestions(detailPresets);
   const navigate = useNavigate();
   const newThread = useNewThreadHandler();
   const { copyToClipboard } = useCopyToClipboard();
@@ -687,11 +731,13 @@ function TaskDetail({
         setError("会话未创建。请确认项目仍可用。");
         return;
       }
-      useComposerDraftStore.getState().setModelSelection(
-        started.draftId,
-        createModelSelection(step.model.instanceId as ProviderInstanceId, step.model.model),
-        { replaceOptions: true },
-      );
+      useComposerDraftStore
+        .getState()
+        .setModelSelection(
+          started.draftId,
+          createModelSelection(step.model.instanceId as ProviderInstanceId, step.model.model),
+          { replaceOptions: true },
+        );
       await mutate(
         {
           steps: task.steps.map((value) =>
@@ -801,7 +847,7 @@ function TaskDetail({
                       value={detailPresetId}
                       onValueChange={(value) => setDetailPresetId(value ?? "")}
                     >
-                      <SelectTrigger aria-label="选择阶段预设" className="h-8 w-48 text-xs">
+                      <SelectTrigger aria-label="选择阶段预设" className="h-8 w-48">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectPopup>
@@ -1284,7 +1330,10 @@ function TaskStepModelForm({
       </div>
       <div className="space-y-1.5">
         <Label htmlFor={id + "-model"}>模型</Label>
-        <Select value={model || "none"} onValueChange={(value) => setModel(value === "none" ? "" : (value ?? ""))}>
+        <Select
+          value={model || "none"}
+          onValueChange={(value) => setModel(value === "none" ? "" : (value ?? ""))}
+        >
           <SelectTrigger aria-label="步骤模型">
             <SelectValue />
           </SelectTrigger>
@@ -1646,7 +1695,7 @@ function TaskEditor({
   const [presetId, setPresetId] = useState("");
   const [presetName, setPresetName] = useState("");
   const { presets, savedCount, save, remove } = useTaskStepPresets();
-  const stepTitleSuggestions = useStepTitleSuggestions(presets);
+  const stepTitleSuggestions = getStepTitleSuggestions(presets);
   const settings = useEnvironmentSettings(environmentId);
   const providers =
     useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
@@ -1713,7 +1762,9 @@ function TaskEditor({
                 id: SecureRandom.uuidV4Unsafe(),
                 title: row.title,
                 status: "todo",
-                ...(model ? { model: { ...model, ...(modelLabel ? { label: modelLabel } : {}) } } : {}),
+                ...(model
+                  ? { model: { ...model, ...(modelLabel ? { label: modelLabel } : {}) } }
+                  : {}),
               };
             }),
         };
@@ -1893,9 +1944,7 @@ function TaskEditor({
                               <SelectPopup>
                                 <SelectItem value="none">不指定模型</SelectItem>
                                 {!modelKnown ? (
-                                  <SelectItem value="unavailable">
-                                    （预设模型不可用）
-                                  </SelectItem>
+                                  <SelectItem value="unavailable">（预设模型不可用）</SelectItem>
                                 ) : null}
                                 {flatModelOptions.map((option) => (
                                   <SelectItem key={option.value} value={option.value}>
@@ -1952,10 +2001,7 @@ function TaskEditor({
                   <div className="space-y-2 rounded-lg border p-2.5">
                     <p className="text-xs font-medium">阶段预设</p>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Select
-                        value={presetId}
-                        onValueChange={(value) => setPresetId(value ?? "")}
-                      >
+                      <Select value={presetId} onValueChange={(value) => setPresetId(value ?? "")}>
                         <SelectTrigger aria-label="选择阶段预设" className="w-56">
                           <SelectValue />
                         </SelectTrigger>

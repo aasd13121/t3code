@@ -308,7 +308,7 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
           ) : null}
           <SidebarUtilityItem
             icon={<ListTodoIcon />}
-            label="任务"
+            label={gt("Tasks")}
             onClick={() => {
               closeMobileSidebar();
               void navigate({ to: "/tasks" });

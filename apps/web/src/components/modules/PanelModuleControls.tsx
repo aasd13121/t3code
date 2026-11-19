@@ -4,8 +4,10 @@ import { togglePanelModule } from "../../modules/panelModuleActions";
 import { selectThreadRightPanelState, useRightPanelStore } from "../../rightPanelStore";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { useGT } from "gt-react";
 
 export function PanelModuleControls({ threadRef }: { threadRef: ScopedThreadRef }) {
+  const gt = useGT();
   const panel = useRightPanelStore((state) =>
     selectThreadRightPanelState(state.byThreadKey, threadRef),
   );
@@ -16,16 +18,18 @@ export function PanelModuleControls({ threadRef }: { threadRef: ScopedThreadRef 
           size="sm"
           variant="ghost"
           className="shrink-0 [-webkit-app-region:no-drag]"
-          aria-label={`切换${module.title}`}
+          aria-label={gt("Toggle {name}", { name: module.title })}
           data-panel-module-toggle={module.id}
           pressed={panel.isOpen && panel.activeSurfaceId === `module:${module.id}`}
           onPressedChange={() => togglePanelModule(threadRef, module.id)}
         >
           <module.icon className="size-4" aria-hidden="true" />
-          {module.title}
+          {gt(module.title)}
         </Toggle>
       </TooltipTrigger>
-      <TooltipPopup side="bottom">打开或收起{module.title}</TooltipPopup>
+      <TooltipPopup side="bottom">
+        {gt("Open or close {name}", { name: module.title })}
+      </TooltipPopup>
     </Tooltip>
   ));
 }

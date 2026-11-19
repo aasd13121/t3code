@@ -4,6 +4,7 @@ import {
   CloudSpeechCredentials,
   CodexSettings,
   EasDeviceHostConfig,
+  ImageGeneratorConfig,
   type ProviderInstanceConfig,
   type ServerSettings,
   type SettingsSecretValue,
@@ -48,6 +49,7 @@ const providerSecretFields = new Map([
 ]);
 const usageLimitSecretFields = secretSettingsFields(UsageLimitSourceConfig);
 const textGeneratorSecretFields = secretSettingsFields(TextGeneratorConfig);
+const imageGeneratorSecretFields = secretSettingsFields(ImageGeneratorConfig);
 const voiceSecretFields = secretSettingsFields(CloudSpeechCredentials);
 const easDeviceHostSecretFields = secretSettingsFields(EasDeviceHostConfig);
 const simlockDeviceHostSecretFields = secretSettingsFields(SimlockDeviceHostConfig);
@@ -224,6 +226,19 @@ function mapSecretFieldGroups(
     ]),
   ) as ServerSettings["textGenerators"];
 
+  const imageGenerators = Object.fromEntries(
+    Object.entries(settings.imageGenerators).map(([id, generator]) => [
+      id,
+      mapFields(
+        generator,
+        imageGeneratorSecretFields,
+        (field, serverHost) =>
+          `image-generator-${encode(id)}-${encode(field)}` +
+          (serverHost === null ? "" : `-${encode(serverHost)}`),
+      ),
+    ]),
+  ) as ServerSettings["imageGenerators"];
+
   const easDeviceHosts = settings.easDeviceHosts.map(
     (host) =>
       mapFields(
@@ -258,6 +273,7 @@ function mapSecretFieldGroups(
     sourceControlHosts,
     usageLimitSources,
     textGenerators,
+    imageGenerators,
     easDeviceHosts,
     simlockDeviceHosts,
   };

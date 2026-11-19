@@ -1061,6 +1061,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     textGeneratorsOnly: true,
   },
   {
+    id: "image-generators",
+    title: msg("Image generation APIs"),
+    to: "/settings/providers",
+    searchTerms: [msg("image generation API URL endpoint key image generator diffusion models")],
+    providerSettingsOnly: true,
+    textGeneratorsOnly: true,
+  },
+  {
     id: "provider-health-check-interval",
     title: msg("Health check interval"),
     to: "/settings/providers",

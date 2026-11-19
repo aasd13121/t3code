@@ -103,6 +103,7 @@ import { IntervalSecondsField } from "./IntervalSecondsField";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { useSecretSources } from "./SecretSourceInput";
 import { TextGeneratorsSettings } from "./TextGeneratorsSettings";
+import { ImageGeneratorsSettings } from "./ImageGeneratorsSettings";
 import { UsageProviderSettings } from "./UsageProviderSettings";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
@@ -1153,15 +1154,22 @@ export function EnvironmentProviderSettings({
         readOnly={readOnly}
       />
 
-      {/* The server drops text generators under a provider allow-list. */}
+      {/* The server drops generator endpoints under a provider allow-list. */}
       {managedPolicy?.limits?.providers?.allowedDrivers === undefined ? (
-        <TextGeneratorsSettings
-          key={`text-generators:${environmentId}`}
-          environmentId={environmentId}
-          environmentLabel={environmentLabel}
-          providers={serverProviders}
-          readOnly={readOnly}
-        />
+        <>
+          <TextGeneratorsSettings
+            key={`text-generators:${environmentId}`}
+            environmentId={environmentId}
+            environmentLabel={environmentLabel}
+            providers={serverProviders}
+            readOnly={readOnly}
+          />
+          <ImageGeneratorsSettings
+            key={`image-generators:${environmentId}`}
+            environmentId={environmentId}
+            readOnly={readOnly}
+          />
+        </>
       ) : null}
 
       <SettingsSection title={gt("Advanced")}>

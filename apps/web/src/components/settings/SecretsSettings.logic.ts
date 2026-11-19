@@ -2,6 +2,7 @@ import {
   CLOUD_SPEECH_LABELS,
   CloudSpeechProvider,
   EasDeviceHostConfig,
+  ImageGeneratorConfig,
   isSecretReference,
   secretReferencesInSettings,
   type ServerSettings,
@@ -23,6 +24,7 @@ type SecretUseSettings = Pick<
   | "sourceControlHosts"
   | "usageLimitSources"
   | "textGenerators"
+  | "imageGenerators"
   | "easDeviceHosts"
   | "simlockDeviceHosts"
   | "cloudSpeechCredentials"
@@ -103,6 +105,14 @@ export function secretProviderUses(
       uses(
         { settingsSchema: TextGeneratorConfig },
         `text-generator:${id}`,
+        generator.label ?? generator.baseUrl,
+        generator,
+      ),
+    ),
+    ...Object.entries(settings.imageGenerators).flatMap(([id, generator]) =>
+      uses(
+        { settingsSchema: ImageGeneratorConfig },
+        `image-generator:${id}`,
         generator.label ?? generator.baseUrl,
         generator,
       ),
