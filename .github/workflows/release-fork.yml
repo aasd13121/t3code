@@ -58,6 +58,10 @@ jobs:
           else
             VERSION="${GITHUB_REF_NAME#v}"
           fi
+          # Fork -tb suffix: distinguish fork builds from upstream at the same
+          # version; as a prerelease id it sorts higher than upstream so
+          # electron-updater offers the fork build. Guard avoids double-append.
+          [[ "$VERSION" == *-tb ]] || VERSION="$VERSION-tb"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "Release version: $VERSION"
 
@@ -106,7 +110,7 @@ jobs:
         shell: bash
         run: |
           brand=production
-          if [[ "$VERSION" =~ -nightly\.[0-9]{8}\.[0-9]+$ ]]; then brand=nightly; fi
+          if [[ "$VERSION" =~ -nightly\.[0-9]{8}\.[0-9]+(-[a-z0-9]+)?$ ]]; then brand=nightly; fi
           node scripts/apply-web-brand-assets.ts "$brand" apps/server/dist/client
 
       - name: Build CLI single-executable
@@ -163,6 +167,10 @@ jobs:
           else
             VERSION="${GITHUB_REF_NAME#v}"
           fi
+          # Fork -tb suffix: distinguish fork builds from upstream at the same
+          # version; as a prerelease id it sorts higher than upstream so
+          # electron-updater offers the fork build. Guard avoids double-append.
+          [[ "$VERSION" == *-tb ]] || VERSION="$VERSION-tb"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "Release version: $VERSION"
 
@@ -231,13 +239,25 @@ jobs:
             echo "::error::No NSIS installer found in release/"
             exit 1
           fi
+          # electron-updater resolves an update by downloading the channel
+          # manifest from the release. With the nightly publish config (set in
+          # CI via GITHUB_REPOSITORY), electron-builder emits nightly.yml next
+          # to the exe; latest.yml is included as a fallback. builder-debug.yml
+          # is deliberately excluded to keep the release clean.
+          yml=(release/nightly.yml release/latest.yml)
+          if [[ ${#yml[@]} -eq 0 ]]; then
+            echo "::error::No update manifest (nightly.yml/latest.yml) in release/. The fork auto-update loop cannot work without it; confirm build-desktop-artifact.ts resolved a GitHub publish config (GITHUB_REPOSITORY must be set on the runner)."
+            exit 1
+          fi
+          assets=("${exe[@]}" "${yml[@]}")
           tag="v$VERSION"
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" "${exe[@]}" --clobber
+            gh release upload "$tag" "${assets[@]}" --clobber
           else
-            gh release create "$tag" "${exe[@]}" \
+            gh release create "$tag" "${assets[@]}" \
               --title "$VERSION" \
               --notes "Fork build of T3 Code (task-board). Unsigned Windows NSIS installer. SmartScreen will warn on first launch." \
+              --prerelease \
               --target "$GITHUB_SHA"
           fi
-          echo "Published $tag with: ${exe[*]}"
+          echo "Published $tag with: ${assets[*]}"

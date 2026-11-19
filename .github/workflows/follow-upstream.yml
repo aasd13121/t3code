@@ -91,12 +91,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.upstream.outputs.version }}
         run: |
-          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release v$VERSION already published. Up to date."
+          # Fork tags carry a -tb suffix (see release-fork.yml), so dedup
+          # against the suffixed tag the release job will create.
+          if gh release view "v${VERSION}-tb" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release v${VERSION}-tb already published. Up to date."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "New upstream nightly to process: v$VERSION"
+            echo "New upstream nightly to process: v${VERSION}-tb"
           fi
 
       - name: Rebase task-board onto upstream nightly
@@ -130,8 +132,9 @@ jobs:
           # prefers a remote named "upstream" over "origin" — this job adds
           # upstream=pingdotgg/t3code, so every gh call MUST pin
           # --repo "$GITHUB_REPOSITORY" or it would target the upstream repo.
+          # release-fork.yml appends the -tb suffix to the version it receives.
           gh workflow run release-fork.yml --ref task-board -f version="$VERSION" --repo "$GITHUB_REPOSITORY"
-          echo "Dispatched release-fork.yml on task-board for v$VERSION."
+          echo "Dispatched release-fork.yml on task-board for v${VERSION}-tb."
 
       - name: Open issue on rebase conflict
         if: failure() && env.rebase_conflict == 'true'
@@ -153,7 +156,7 @@ jobs:
           # resolve conflicts, then:
           git push origin task-board --force-with-lease
           \`\`\`
-          Then re-run this workflow or dispatch \`release-fork.yml\` with version \`$VERSION\`.
+          Then re-run this workflow or dispatch \`release-fork.yml\` with version \`$VERSION\` (release tag will be \`v${VERSION}-tb\`).
 
           Failed run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           if [[ -z "$existing" ]]; then

@@ -2726,7 +2726,10 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
 });
 
 export function resolveDesktopUpdateChannel(version: string): "latest" | "nightly" {
-  return /-nightly\.\d{8}\.\d+$/.test(version) ? "nightly" : "latest";
+  // Fork: tolerate a trailing prerelease suffix (e.g. -tb) after the nightly
+  // build number so a fork version like 0.1.11-nightly.20261118.4903-tb still
+  // resolves to the nightly channel (branding, prerelease, nightly.yml).
+  return /-nightly\.\d{8}\.\d+(-[a-z0-9]+)?$/.test(version) ? "nightly" : "latest";
 }
 
 export function isDesktopPreviewVersion(version: string): boolean {
