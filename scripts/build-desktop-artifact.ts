@@ -1062,7 +1062,10 @@ export function resolveWindowsServerAsarIgnoreGlobs(arch: typeof BuildArch.Type)
   ];
 }
 
-export const WINDOWS_PACKAGED_PAYLOAD_FILE_LIMIT = 80;
+// Fork (task-board): raised from 80 to 128 — the task-board features add legitimate
+// unpacked native/sidecar files that push the recursive payload count above the
+// upstream baseline. Runtime native-load verification still gates correctness.
+export const WINDOWS_PACKAGED_PAYLOAD_FILE_LIMIT = 128;
 export const WINDOWS_SERVER_RESOURCE_SOURCE_DIR = "apps/desktop/prod-resources/windows-server";
 export const WINDOWS_SERVER_EXTRA_RESOURCES = [
   {
