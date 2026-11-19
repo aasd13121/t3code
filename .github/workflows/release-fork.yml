@@ -256,12 +256,19 @@ jobs:
           fi
           assets=("${exe[@]}" "${yml[@]}")
           tag="v$VERSION"
+          # Release notes must describe what this build actually changed, not a
+          # fixed template line every time. The commit behind the build is that
+          # change; fall back to the version if the API call fails.
+          change="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" --jq '.commit.message' 2>/dev/null | head -20 || true)"
+          [ -n "$change" ] || change="Release $VERSION"
+          printf -v notes 'Fork build of T3 Code (task-board). Changes in this build:\n\n%s\n\nUnsigned Windows NSIS installer. SmartScreen will warn on first launch.' "$change"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${assets[@]}" --clobber
+            gh release edit "$tag" --notes "$notes" >/dev/null
           else
             gh release create "$tag" "${assets[@]}" \
               --title "$VERSION" \
-              --notes "Fork build of T3 Code (task-board). Unsigned Windows NSIS installer. SmartScreen will warn on first launch." \
+              --notes "$notes" \
               --prerelease \
               --target "$GITHUB_SHA"
           fi
