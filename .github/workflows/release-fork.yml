@@ -244,7 +244,12 @@ jobs:
           # CI via GITHUB_REPOSITORY), electron-builder emits nightly.yml next
           # to the exe; latest.yml is included as a fallback. builder-debug.yml
           # is deliberately excluded to keep the release clean.
-          yml=(release/nightly.yml release/latest.yml)
+          yml=()
+          for candidate in release/nightly.yml release/latest.yml; do
+            if [[ -f "$candidate" ]]; then
+              yml+=("$candidate")
+            fi
+          done
           if [[ ${#yml[@]} -eq 0 ]]; then
             echo "::error::No update manifest (nightly.yml/latest.yml) in release/. The fork auto-update loop cannot work without it; confirm build-desktop-artifact.ts resolved a GitHub publish config (GITHUB_REPOSITORY must be set on the runner)."
             exit 1
