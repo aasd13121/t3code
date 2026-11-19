@@ -16,6 +16,7 @@ import {
 } from "@electron/asar";
 
 import { fromYaml } from "@t3tools/shared/schemaYaml";
+import { desktopUpdateChannelOf } from "@t3tools/shared/cliRelease";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/relayAuth";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
@@ -2725,12 +2726,7 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
   };
 });
 
-export function resolveDesktopUpdateChannel(version: string): "latest" | "nightly" {
-  // Fork: tolerate a trailing prerelease suffix (e.g. -tb) after the nightly
-  // build number so a fork version like 0.1.11-nightly.20261118.4903-tb still
-  // resolves to the nightly channel (branding, prerelease, nightly.yml).
-  return /-nightly\.\d{8}\.\d+(-[a-z0-9]+)?$/.test(version) ? "nightly" : "latest";
-}
+export const resolveDesktopUpdateChannel = desktopUpdateChannelOf;
 
 export function isDesktopPreviewVersion(version: string): boolean {
   return /-pr\./.test(version) || /-preview\.\d{8}\.\d+$/.test(version);

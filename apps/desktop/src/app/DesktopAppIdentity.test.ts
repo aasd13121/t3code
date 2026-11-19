@@ -180,7 +180,7 @@ describe("DesktopAppIdentity", () => {
     { stage: "Beta", environment: {} },
     {
       stage: "Nightly",
-      environment: { appVersion: "0.0.43-nightly.20260929.2428" },
+      environment: { appVersion: "0.0.43-nightly.20260929.2428-tb" },
     },
     {
       stage: "Dev",

@@ -61,7 +61,7 @@ jobs:
           # Fork -tb suffix: distinguish fork builds from upstream at the same
           # version; as a prerelease id it sorts higher than upstream so
           # electron-updater offers the fork build. Guard avoids double-append.
-          [[ "$VERSION" == *-tb ]] || VERSION="$VERSION-tb"
+          [[ "$VERSION" =~ -tb(\.[1-9][0-9]*)?$ ]] || VERSION="$VERSION-tb"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "Release version: $VERSION"
 
@@ -110,7 +110,7 @@ jobs:
         shell: bash
         run: |
           brand=production
-          if [[ "$VERSION" =~ -nightly\.[0-9]{8}\.[0-9]+(-[a-z0-9]+)?$ ]]; then brand=nightly; fi
+          if [[ "$VERSION" =~ -nightly\.[0-9]{8}\.[0-9]+-tb(\.[1-9][0-9]*)?$ ]]; then brand=nightly; fi
           node scripts/apply-web-brand-assets.ts "$brand" apps/server/dist/client
 
       - name: Build CLI single-executable
@@ -170,7 +170,7 @@ jobs:
           # Fork -tb suffix: distinguish fork builds from upstream at the same
           # version; as a prerelease id it sorts higher than upstream so
           # electron-updater offers the fork build. Guard avoids double-append.
-          [[ "$VERSION" == *-tb ]] || VERSION="$VERSION-tb"
+          [[ "$VERSION" =~ -tb(\.[1-9][0-9]*)?$ ]] || VERSION="$VERSION-tb"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "Release version: $VERSION"
 
