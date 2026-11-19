@@ -266,3 +266,27 @@ jobs:
               --target "$GITHUB_SHA"
           fi
           echo "Published $tag with: ${assets[*]}"
+
+      # electron-updater is patched to read releases/download/update-feed/<channel>.json
+      # and prefer it over releases.atom, whose top 10 tags (any kind) can be dominated
+      # by other tags and hide the newest nightly. Without a pointer, an older tag at the
+      # top of the feed makes installs report "no update". Record this release as the
+      # nightly pointer: the full release object so releaseName/body/assets resolve.
+      - name: Update nightly channel pointer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > nightly.json
+          if gh release view update-feed --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload update-feed nightly.json --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create update-feed --repo "$GITHUB_REPOSITORY" \
+              --title "update-feed" \
+              --notes "Rolling pointer for the fork nightly auto-update feed. Do not delete." \
+              --target "$GITHUB_SHA"
+            gh release upload update-feed nightly.json --repo "$GITHUB_REPOSITORY" --clobber
+          fi
+          echo "update-feed/nightly.json -> $tag"
