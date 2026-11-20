@@ -1,5 +1,7 @@
 import { tokenizeCliArgs } from "@t3tools/shared/cliArgs";
 
+import { codexBaseUrlOverrideArgs } from "./CodexRelayHeaderProxy.ts";
+
 const T3CODE_CODEX_LAUNCH_ARGS_ENV = "T3CODE_CODEX_LAUNCH_ARGS";
 
 export const resolveCodexLaunchArgs = (
@@ -15,6 +17,7 @@ export const codexAppServerArgs = (launchArgs?: string) => [
   "-c",
   "thread_unload_delay_secs=0",
   ...codexLaunchArgv(launchArgs),
+  ...codexBaseUrlOverrideArgs(),
 ];
 
 interface LaunchArgFilter {
@@ -67,11 +70,12 @@ const HOOK_FEATURES = new Set(["hooks", "codex_hooks"]);
 // Feature toggles beat config overrides, so a launch arg's hook enable would undo ours.
 export const codexExecLaunchArgs = (launchArgs?: string) => {
   const args = filterLaunchArgs(launchArgs, EXEC_FILTER);
-  return args.filter((arg, index) => {
+  const filtered = args.filter((arg, index) => {
     if (arg.startsWith("--enable=")) return !HOOK_FEATURES.has(arg.slice("--enable=".length));
     if (arg === "--enable") return !HOOK_FEATURES.has(args[index + 1] ?? "");
     return !(args[index - 1] === "--enable" && HOOK_FEATURES.has(arg));
   });
+  return [...filtered, ...codexBaseUrlOverrideArgs()];
 };
 
 export const codexMcpListLaunchArgs = (launchArgs?: string) =>

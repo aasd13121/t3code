@@ -40,6 +40,10 @@ export async function runCliCommand() {
     if (process.env.T3CODE_STARTUP_PROFILE_DIR) {
       performance.measure("server.import.binCli", { start: importStart });
     }
+    // Start the loopback relay proxy (if the codex provider is a non-official relay)
+    // before anything can spawn `codex app-server`. Fail-soft and a no-op otherwise.
+    const { ensureCodexRelayHeaderProxy } = await import("./provider/CodexRelayHeaderProxy.ts");
+    ensureCodexRelayHeaderProxy();
     runCli();
   }
 }
