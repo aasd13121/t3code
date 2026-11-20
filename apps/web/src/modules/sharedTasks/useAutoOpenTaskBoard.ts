@@ -19,13 +19,16 @@ const OPEN_TASK_STATUSES: ReadonlySet<SharedTaskStatus> = new Set([
 
 /**
  * Shows the task board on its own once this conversation has work on it: a task
- * linked to this thread, or, on a thread that has not run yet, an in-progress
- * task in the same project. Respects a board the user closed.
+ * linked to this thread, to a thread it was forked from, or, on a thread that
+ * has not run yet, an in-progress task in the same project. Respects a board the
+ * user closed.
  */
 export function useAutoOpenTaskBoard(input: {
   readonly threadRef: ScopedThreadRef | null;
   readonly projectId: string | null;
   readonly isFreshThread: boolean;
+  /** Parent thread of a forked conversation; its tasks carry over to the fork. */
+  readonly forkSourceThreadId: string | null;
 }): void {
   const environmentId = input.threadRef?.environmentId ?? null;
   const threadId = input.threadRef?.threadId ?? null;
@@ -33,6 +36,7 @@ export function useAutoOpenTaskBoard(input: {
   const isFreshThread = input.isFreshThread;
   const projectId = input.projectId;
   const threadRef = input.threadRef;
+  const forkSourceThreadId = input.forkSourceThreadId;
   const snapshot = useEnvironmentQuery(
     environmentId === null
       ? null
@@ -47,10 +51,9 @@ export function useAutoOpenTaskBoard(input: {
     const relevant = tasks.some((task) => {
       if (!OPEN_TASK_STATUSES.has(task.status)) return false;
       if (
-        threadId !== null &&
         task.threads.some(
           (thread) =>
-            thread.threadId === threadId &&
+            (thread.threadId === threadId || thread.threadId === forkSourceThreadId) &&
             (thread.environmentId ?? environmentId) === environmentId,
         )
       ) {
@@ -67,5 +70,14 @@ export function useAutoOpenTaskBoard(input: {
     const module = getPanelModule(TASK_BOARD_MODULE_ID);
     if (!module) return;
     useRightPanelStore.getState().openModuleAutomatic(threadRef, module.id, module.title);
-  }, [environmentId, isFreshThread, projectId, tasks, threadId, threadKey, threadRef]);
+  }, [
+    environmentId,
+    forkSourceThreadId,
+    isFreshThread,
+    projectId,
+    tasks,
+    threadId,
+    threadKey,
+    threadRef,
+  ]);
 }

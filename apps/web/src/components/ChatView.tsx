@@ -1213,10 +1213,13 @@ export default function ChatView(props: ChatViewProps) {
     useRightPanelStore.getState().reconcileFileSurfaces(activeThreadRef, activeProject !== null);
   }, [activeEnvironmentBootstrapComplete, activeProject, activeThreadRef]);
 
+  const lineageParentThreadId = serverThread?.lineage.parentThreadId ?? null;
+  const lineageRootThreadId = serverThread?.lineage.rootThreadId ?? null;
   useAutoOpenTaskBoard({
     threadRef: embedded ? null : activeThreadRef,
     projectId: activeThreadProjectId ?? null,
     isFreshThread: !isServerThread || (serverThread?.itemCount ?? 0) === 0,
+    forkSourceThreadId: lineageParentThreadId ?? lineageRootThreadId,
   });
 
   const activeEnvironment =
