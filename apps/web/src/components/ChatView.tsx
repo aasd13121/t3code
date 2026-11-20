@@ -34,6 +34,7 @@ import {
 import { useTimelineRewind } from "./chat/useTimelineRewind";
 import { useThreadLifecycle } from "./chat/useThreadLifecycle";
 import { useRightPanelActions } from "./chat/useRightPanelActions";
+import { useAutoOpenTaskBoard } from "../modules/sharedTasks/useAutoOpenTaskBoard";
 import { type TerminalLaunchContext, useChatTerminalActions } from "./chat/useChatTerminalActions";
 import { useComposerSend } from "./chat/useComposerSend";
 import { useComposerResume } from "./chat/useComposerResume";
@@ -1211,6 +1212,12 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef || !activeEnvironmentBootstrapComplete) return;
     useRightPanelStore.getState().reconcileFileSurfaces(activeThreadRef, activeProject !== null);
   }, [activeEnvironmentBootstrapComplete, activeProject, activeThreadRef]);
+
+  useAutoOpenTaskBoard({
+    threadRef: embedded ? null : activeThreadRef,
+    projectId: activeThreadProjectId ?? null,
+    isFreshThread: !isServerThread || (serverThread?.itemCount ?? 0) === 0,
+  });
 
   const activeEnvironment =
     activeThread == null ? null : (environmentById.get(activeThread.environmentId) ?? null);

@@ -254,6 +254,40 @@ describe("rightPanelStore", () => {
     },
   );
 
+  it.each(["one", "all", "others", "right"])(
+    "keeps a task board the user closed out of automatic reopens after %s",
+    (mode) => {
+      const store = useRightPanelStore.getState();
+      store.open(refA, "files");
+      store.openModule(refA, "shared-tasks", "任务板");
+      if (mode === "one") store.closeSurface(refA, "module:shared-tasks");
+      if (mode === "all") store.closeAllSurfaces(refA);
+      if (mode === "others") store.closeOtherSurfaces(refA, "files");
+      if (mode === "right") store.closeSurfacesToRight(refA, "files");
+      store.openModuleAutomatic(refA, "shared-tasks", "任务板");
+      expect(
+        selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces.some(
+          (surface) => surface.kind === "module",
+        ),
+      ).toBe(false);
+      store.openModule(refA, "shared-tasks", "任务板");
+      expect(
+        selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces.some(
+          (surface) => surface.kind === "module",
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it("opens the task board automatically while the panel shows something else", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "diff");
+    store.openModuleAutomatic(refA, "shared-tasks", "任务板");
+    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces.map((surface) => surface.id)).toEqual(["diff", "module:shared-tasks"]);
+    expect(state.activeSurfaceId).toBe("diff");
+  });
+
   const completedDiff = { kind: "diff", turnId: RunId.make("turn-1") } as const;
   const linkedPullRequest = pullRequestSurface({
     projectId: "project-a",

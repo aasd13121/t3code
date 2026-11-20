@@ -126,6 +126,7 @@ export interface ThreadRightPanelState {
   activeSurfaceId: string | null;
   surfaces: RightPanelSurface[];
   dismissedDeviceSurfaceIds?: string[];
+  dismissedModuleIds?: string[];
   maximized?: true;
   proactiveDiffTurnId?: RunId;
 }
@@ -162,6 +163,8 @@ interface RightPanelStoreState {
     >,
   ) => void;
   openModule: (ref: ScopedThreadRef, moduleId: string, title: string) => void;
+  /** Opens a module without user intent; skips a module the user already closed. */
+  openModuleAutomatic: (ref: ScopedThreadRef, moduleId: string, title: string) => void;
   openSideChat: (ref: ScopedThreadRef, threadId: ThreadId) => void;
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
@@ -406,6 +409,7 @@ const updateThreadStateMap = (
     next.activeSurfaceId === null &&
     next.surfaces.length === 0 &&
     !next.dismissedDeviceSurfaceIds?.length &&
+    !next.dismissedModuleIds?.length &&
     next.proactiveDiffTurnId === undefined
   ) {
     if (!(threadKey in byThreadKey)) return byThreadKey;
@@ -516,13 +520,24 @@ const userActionOnThread = (
       (surface) =>
         surface.kind === "device" && !next.surfaces.some((entry) => entry.id === surface.id),
     );
-    if (removedDevices.length === 0) return next;
+    // A module the user closed stays closed for automatic reopens, like a dismissed device.
+    const removedModules = current.surfaces.filter(
+      (surface) =>
+        surface.kind === "module" && !next.surfaces.some((entry) => entry.id === surface.id),
+    );
+    if (removedDevices.length === 0 && removedModules.length === 0) return next;
     return {
       ...next,
       dismissedDeviceSurfaceIds: [
         ...new Set([
           ...(next.dismissedDeviceSurfaceIds ?? []),
           ...removedDevices.map((surface) => surface.id),
+        ]),
+      ],
+      dismissedModuleIds: [
+        ...new Set([
+          ...(next.dismissedModuleIds ?? []),
+          ...removedModules.map((surface) => surface.id),
         ]),
       ],
     };
@@ -719,6 +734,13 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                           ),
                       }
                     : {}),
+                  ...(Array.isArray(validThreadState?.dismissedModuleIds)
+                    ? {
+                        dismissedModuleIds: validThreadState.dismissedModuleIds.filter(
+                          (id): id is string => typeof id === "string",
+                        ),
+                      }
+                    : {}),
                   ...(validThreadState?.maximized === true ? { maximized: true as const } : {}),
                 },
               ];
@@ -822,8 +844,25 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
       openModule: (ref, moduleId, title) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) =>
-            upsertSurface(current, { id: `module:${moduleId}`, kind: "module", moduleId, title }),
+            upsertSurface(
+              {
+                ...current,
+                dismissedModuleIds: (current.dismissedModuleIds ?? []).filter(
+                  (entry) => entry !== `module:${moduleId}`,
+                ),
+              },
+              { id: `module:${moduleId}`, kind: "module", moduleId, title },
+            ),
           ),
+        ),
+      openModuleAutomatic: (ref, moduleId, title) =>
+        set((state) =>
+          automaticUpdate(state, scopedThreadKey(ref), (current) => {
+            const id = `module:${moduleId}` as const;
+            if (current.dismissedModuleIds?.includes(id)) return current;
+            // Open the tab; only take the active tab when the panel is not showing something else.
+            return upsertSurface(current, { id, kind: "module", moduleId, title }, !current.isOpen);
+          }),
         ),
       openDevice: (ref, target, automatic = false) =>
         set((state) =>
@@ -1237,9 +1276,23 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         ),
       close: (ref) =>
         set((state) =>
-          userAction(state, scopedThreadKey(ref), (current) =>
-            current.isOpen ? { ...current, isOpen: false } : current,
-          ),
+          userAction(state, scopedThreadKey(ref), (current) => {
+            const moduleIds = current.surfaces.flatMap((surface) =>
+              surface.kind === "module" ? [surface.id] : [],
+            );
+            if (!current.isOpen && moduleIds.length === 0) return current;
+            return {
+              ...current,
+              isOpen: false,
+              ...(moduleIds.length === 0
+                ? {}
+                : {
+                    dismissedModuleIds: [
+                      ...new Set([...(current.dismissedModuleIds ?? []), ...moduleIds]),
+                    ],
+                  }),
+            };
+          }),
         ),
       setMaximized: (ref, maximized) =>
         set((state) =>

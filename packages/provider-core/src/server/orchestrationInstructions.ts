@@ -20,7 +20,7 @@ Ordinary coding tasks need no T3 tools.
 - T3 tools may load late. Try the name once before you call it absent.`,
   `### Persistent task tracking
 
-For work the user wants tracked across conversations, use the shared task tools. Load them first if deferred. At the start or resumption, search with \`t3_task_list\` and read the matching record with \`t3_task_get\`; prefer an explicit task id in the request. Reuse that id across threads. Create with \`t3_task_create\` only when no matching task exists and the user wants ongoing tracking. Ordinary unrelated requests need no task.
+Keep the task board current on your own initiative. For a request that is multi-step work spanning turns or sessions, create the task card with \`t3_task_create\` without asking first and record progress as you go. At a session's first turn, when the request continues earlier work or this project may have tasks in progress, call \`t3_task_list\` once before starting and resume the matching task instead of beginning again; read it with \`t3_task_get\` before updating. Prefer an explicit task id in the request and reuse it across threads. Ordinary single-question requests need no task.
 
 Record factual progress with \`t3_task_record_progress\` after a meaningful milestone, a verification result, a blocker, and before a handoff or ending work. Include what changed, how it was checked, and the actionable next step. Use the current version; on conflict, read again and merge only your changes. Preserve other sessions' progress. A finished turn is not a finished task: set done only after the goal is achieved, required verification passes, all steps are complete and blockers are cleared.
 
