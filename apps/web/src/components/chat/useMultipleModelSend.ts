@@ -18,12 +18,14 @@ import {
   type ComposerThreadTarget,
   composerDraftHasUserContent,
   type DraftId,
+  type DraftSharedTask,
   useComposerDraftStore,
 } from "../../composerDraftStore";
 import type { ComposerHandleRef } from "../../composerHandleContext";
 import { releaseDraftAttachments } from "../../lib/attachmentUploadQueue";
 import type { buildMessageContext } from "../../lib/composerContextRecords";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
+import { linkSentTaskThread } from "../../modules/sharedTasks/linkSentTaskThread";
 import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
@@ -94,6 +96,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     selections,
     targets,
     sendSnapshot,
+    sharedTask,
     createdAt,
     attachmentsPromise,
     usesAttachmentUploads,
@@ -108,6 +111,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     readonly selections: ReadonlyArray<ModelSelection>;
     readonly targets: ReadonlyArray<MultipleModelTarget>;
     readonly sendSnapshot: ComposerSendSnapshot;
+    readonly sharedTask: DraftSharedTask | undefined;
     readonly createdAt: string;
     readonly attachmentsPromise: ReturnType<typeof prepareTurnAttachments>;
     readonly usesAttachmentUploads: boolean;
@@ -167,8 +171,8 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
             ]),
             model: target.selection.model,
             uncertainSubmissions: uncertainSubmissionsRef.current,
-            start: (targetThreadId) => {
-              return startThreadTurn({
+            start: async (targetThreadId) => {
+              const result = await startThreadTurn({
                 environmentId,
                 input: {
                   threadId: targetThreadId,
@@ -207,6 +211,10 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
                   createdAt: createdAt,
                 },
               });
+              if (result._tag === "Success" && sharedTask) {
+                void linkSentTaskThread(sharedTask, scopeThreadRef(environmentId, targetThreadId));
+              }
+              return result;
             },
             openThread: (threadId) =>
               void navigate({

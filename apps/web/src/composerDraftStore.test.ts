@@ -937,6 +937,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       startFromOrigin: true,
       runtimeMode: "approval-required",
       interactionMode: "plan",
+      sharedTask: { taskId: "work-task", environmentId: TEST_ENVIRONMENT_ID, stepId: "work" },
     });
     store.setPrompt(draftId, "keep this prompt");
     markPromotedDraftThreadByRef(scopeThreadRef(TEST_ENVIRONMENT_ID, threadId));
@@ -956,10 +957,23 @@ describe("composerDraftStore project draft thread mapping", () => {
       runtimeMode: "approval-required",
       interactionMode: "plan",
       promotedTo: null,
+      sharedTask: { taskId: "work-task", environmentId: TEST_ENVIRONMENT_ID, stepId: "work" },
     });
     expect(useComposerDraftStore.getState().getComposerDraft(draftId)?.prompt).toBe(
       "keep this prompt",
     );
+    const persisted = partializeComposerDraftStoreState(useComposerDraftStore.getState());
+    const hydrated = useComposerDraftStore.persist.getOptions().merge!(
+      persisted,
+      useComposerDraftStore.getState(),
+    );
+    expect(hydrated.draftThreadsByThreadKey[draftId]?.sharedTask).toEqual({
+      taskId: "work-task",
+      environmentId: TEST_ENVIRONMENT_ID,
+      stepId: "work",
+    });
+    store.setDraftThreadContext(draftId, { sharedTask: null });
+    expect(store.getDraftThread(draftId)?.sharedTask).toBeUndefined();
   });
 
   it("clears only matching project draft mapping entries", () => {

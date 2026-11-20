@@ -3,7 +3,12 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import { DEFAULT_SERVER_SETTINGS, type ScopedProjectRef, type ThreadId } from "@t3tools/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  type ModelSelection,
+  type ScopedProjectRef,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { type AnyRouter, useRouter } from "@tanstack/react-router";
 import {
   composerDraftHasUserContent,
@@ -11,6 +16,7 @@ import {
   type DraftId,
   type DraftThreadEnvMode,
   type DraftThreadState,
+  type DraftSharedTask,
   useComposerDraftStore,
 } from "../composerDraftStore";
 import { newDraftId, newThreadId } from "../lib/utils";
@@ -102,6 +108,8 @@ export function createNewThreadHandler(router: AnyRouter) {
       replace?: boolean;
       /** Composer text for the draft, set before it shows. A draft with user text keeps it. */
       prompt?: string;
+      sharedTask?: DraftSharedTask;
+      modelSelection?: ModelSelection;
     },
   ): Promise<{ draftId: DraftId; threadId: ThreadId } | null> => {
     const projects = readProjects();
@@ -123,9 +131,14 @@ export function createNewThreadHandler(router: AnyRouter) {
     } = useComposerDraftStore.getState();
     // Never over text the user wrote: a draft can gain some while this awaits.
     const seedPrompt = (draftId: DraftId) => {
-      if (options?.prompt === undefined) return;
-      if (composerDraftHasUserContent(getComposerDraft(draftId))) return;
+      if (options?.prompt === undefined) return true;
+      if (composerDraftHasUserContent(getComposerDraft(draftId)))
+        return options.sharedTask === undefined;
       setPrompt(draftId, options.prompt);
+      setDraftThreadContext(draftId, { sharedTask: options.sharedTask ?? null });
+      if (options.modelSelection)
+        setModelSelection(draftId, options.modelSelection, { replaceOptions: true });
+      return true;
     };
     const requestingRouteHref = router.state.location.href;
     const routeChangedSinceRequest = () => router.state.location.href !== requestingRouteHref;
@@ -236,6 +249,7 @@ export function createNewThreadHandler(router: AnyRouter) {
     // Another opener (home's own first-project draft) may have reached this project's draft first.
     // Matches lag the location during a navigation, so compare against the location.
     const resultIfAbandoned = () => {
+      if (options?.sharedTask) return null;
       const draft = getDraftSessionByLogicalProjectKey(logicalProjectKey);
       if (draft === null || draft.promotedTo != null || readProject(projectRef) === null) {
         return null;
@@ -353,7 +367,7 @@ export function createNewThreadHandler(router: AnyRouter) {
           draftId: emptyStoredDraftThread.draftId,
           threadId: emptyStoredDraftThread.threadId,
         };
-        seedPrompt(emptyStoredDraftThread.draftId);
+        if (!seedPrompt(emptyStoredDraftThread.draftId)) return null;
         const routeTargetAfterWrites = getCurrentRouteTarget();
         if (
           routeTargetAfterWrites?.kind === "draft" &&
@@ -392,7 +406,7 @@ export function createNewThreadHandler(router: AnyRouter) {
         interactionMode: latestActiveDraftThread.interactionMode,
         ...pickExplicitWorkspaceOptions(options),
       });
-      seedPrompt(currentRouteTarget.draftId);
+      if (!seedPrompt(currentRouteTarget.draftId)) return Promise.resolve(null);
       return Promise.resolve({
         draftId: currentRouteTarget.draftId,
         threadId: latestActiveDraftThread.threadId,
@@ -414,6 +428,11 @@ export function createNewThreadHandler(router: AnyRouter) {
         racedDraft.draftId !== storedDraftThread?.draftId &&
         readThreadShell(scopeThreadRef(racedDraft.environmentId, racedDraft.threadId)) === null
       ) {
+        if (
+          options?.sharedTask &&
+          composerDraftHasUserContent(getComposerDraft(racedDraft.draftId))
+        )
+          return null;
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, racedDraft.draftId, {
           threadId: racedDraft.threadId,
           createdAt: racedDraft.createdAt,
@@ -421,7 +440,7 @@ export function createNewThreadHandler(router: AnyRouter) {
           interactionMode: racedDraft.interactionMode,
           ...pickExplicitWorkspaceOptions(options),
         });
-        seedPrompt(racedDraft.draftId);
+        if (!seedPrompt(racedDraft.draftId)) return null;
         await router.navigate({
           to: "/draft/$draftId",
           params: { draftId: racedDraft.draftId },
@@ -449,7 +468,7 @@ export function createNewThreadHandler(router: AnyRouter) {
       if (modelSelectionOverride) {
         setModelSelection(draftId, modelSelectionOverride, { replaceOptions: true });
       }
-      seedPrompt(draftId);
+      if (!seedPrompt(draftId)) return null;
       await router.navigate({
         to: "/draft/$draftId",
         params: { draftId },

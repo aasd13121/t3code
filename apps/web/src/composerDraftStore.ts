@@ -403,7 +403,16 @@ type LegacyPersistedComposerDraftStoreState = PersistedComposerDraftStoreState &
   LegacyStickyModelFields &
   LegacyV2StoreFields;
 
+const DraftSharedTask = Schema.Struct({
+  taskId: Schema.String,
+  environmentId: Schema.String,
+  stepId: Schema.optionalKey(Schema.String),
+});
+export type DraftSharedTask = typeof DraftSharedTask.Type;
+const decodeDraftSharedTask = Schema.decodeUnknownOption(DraftSharedTask);
+
 const PersistedDraftThreadState = Schema.Struct({
+  sharedTask: Schema.optionalKey(DraftSharedTask),
   threadId: ThreadId,
   environmentId: Schema.String,
   projectId: ProjectId,
@@ -503,6 +512,7 @@ export function composerDraftHasUserContent(
 }
 
 export interface DraftSessionState {
+  sharedTask?: DraftSharedTask;
   threadId: ThreadId;
   environmentId: EnvironmentId;
   projectId: ProjectId;
@@ -591,6 +601,7 @@ interface ComposerDraftStoreState {
       environmentSelection?: "auto" | "manual";
       loadBalancedEnvironmentId?: EnvironmentId | null;
       checkoutPullRequest?: DraftCheckoutPullRequest | null;
+      sharedTask?: DraftSharedTask | null;
     },
   ) => void;
   setProjectDraftThreadId: (
@@ -608,6 +619,7 @@ interface ComposerDraftStoreState {
       environmentSelection?: "auto" | "manual";
       loadBalancedEnvironmentId?: EnvironmentId | null;
       checkoutPullRequest?: DraftCheckoutPullRequest | null;
+      sharedTask?: DraftSharedTask | null;
     },
   ) => void;
   setDraftThreadContext: (
@@ -624,6 +636,7 @@ interface ComposerDraftStoreState {
       environmentSelection?: "auto" | "manual";
       loadBalancedEnvironmentId?: EnvironmentId | null;
       checkoutPullRequest?: DraftCheckoutPullRequest | null;
+      sharedTask?: DraftSharedTask | null;
     },
   ) => void;
   clearProjectDraftThreadId: (projectRef: ScopedProjectRef) => void;
@@ -1718,6 +1731,7 @@ function createDraftThreadState(
     environmentSelection?: "auto" | "manual";
     loadBalancedEnvironmentId?: EnvironmentId | null;
     checkoutPullRequest?: DraftCheckoutPullRequest | null;
+    sharedTask?: DraftSharedTask | null;
   },
 ): DraftThreadState {
   const projectChanged =
@@ -1747,6 +1761,8 @@ function createDraftThreadState(
     options?.checkoutPullRequest,
     projectChanged,
   );
+  const sharedTask =
+    options?.sharedTask === undefined ? existingThread?.sharedTask : options.sharedTask;
   return {
     threadId,
     environmentId: projectRef.environmentId,
@@ -1772,6 +1788,7 @@ function createDraftThreadState(
       options?.envMode ?? (nextWorktreePath ? "worktree" : (existingThread?.envMode ?? "local")),
     startFromOrigin: nextStartFromOrigin,
     ...(checkoutPullRequest ? { checkoutPullRequest } : {}),
+    ...(sharedTask ? { sharedTask } : {}),
     promotedTo: null,
   };
 }
@@ -1823,6 +1840,7 @@ function draftThreadsEqual(left: DraftThreadState | undefined, right: DraftThrea
     left.worktreePath === right.worktreePath &&
     left.envMode === right.envMode &&
     left.startFromOrigin === right.startFromOrigin &&
+    JSON.stringify(left.sharedTask) === JSON.stringify(right.sharedTask) &&
     checkoutPullRequestsEqual(left.checkoutPullRequest, right.checkoutPullRequest) &&
     scopedThreadRefsEqual(left.promotedTo, right.promotedTo)
   );
@@ -1939,6 +1957,7 @@ function normalizePersistedDraftThreads(
       const checkoutPullRequest = normalizePersistedCheckoutPullRequest(
         candidateDraftThread.checkoutPullRequest,
       );
+      const sharedTask = decodeDraftSharedTask(candidateDraftThread.sharedTask);
       const promotedToCandidate = candidateDraftThread.promotedTo;
       const promotedToRecord =
         promotedToCandidate && typeof promotedToCandidate === "object"
@@ -1997,6 +2016,7 @@ function normalizePersistedDraftThreads(
             ? { loadBalancedEnvironmentId: null }
             : {}),
         ...(checkoutPullRequest ? { checkoutPullRequest } : {}),
+        ...(Option.isSome(sharedTask) ? { sharedTask: sharedTask.value } : {}),
         promotedTo,
       };
     }
@@ -2777,6 +2797,7 @@ function toHydratedDraftThreadState(
     ...(persistedDraftThread.checkoutPullRequest
       ? { checkoutPullRequest: persistedDraftThread.checkoutPullRequest }
       : {}),
+    ...(persistedDraftThread.sharedTask ? { sharedTask: persistedDraftThread.sharedTask } : {}),
     promotedTo: persistedDraftThread.promotedTo
       ? scopeThreadRef(
           persistedDraftThread.promotedTo.environmentId as EnvironmentId,
@@ -3041,7 +3062,10 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               options.checkoutPullRequest,
               projectChanged,
             );
+            const sharedTask =
+              options.sharedTask === undefined ? existing.sharedTask : options.sharedTask;
             const nextDraftThread: DraftThreadState = {
+              ...(sharedTask ? { sharedTask } : {}),
               threadId: existing.threadId,
               environmentId: nextProjectRef.environmentId,
               projectId: nextProjectRef.projectId,
@@ -3080,6 +3104,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextDraftThread.worktreePath === existing.worktreePath &&
               nextDraftThread.envMode === existing.envMode &&
               nextDraftThread.startFromOrigin === existing.startFromOrigin &&
+              JSON.stringify(nextDraftThread.sharedTask) === JSON.stringify(existing.sharedTask) &&
               checkoutPullRequestsEqual(
                 nextDraftThread.checkoutPullRequest,
                 existing.checkoutPullRequest,

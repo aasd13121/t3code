@@ -113,6 +113,7 @@ const testState = vi.hoisted(() => {
       draftStore.setDraftThreadContext.mockClear();
       draftStore.setLogicalProjectDraftThreadId.mockClear();
       draftStore.setPrompt.mockClear();
+      draftStore.setModelSelection.mockClear();
       projectFileRead = new Promise<null>((resolve) => {
         completeProjectFileRead = resolve;
       });
@@ -317,7 +318,11 @@ describe.each([
     testState.reset(draft);
     const pendingOpen = useNewThreadHandler()(
       { environmentId: "environment-ssh", projectId: "project-remote" } as never,
-      { prompt: "Read the playbook. " },
+      {
+        prompt: "Read the playbook. ",
+        sharedTask: { taskId: "task", stepId: "work", environmentId: "environment-ssh" },
+        modelSelection: { instanceId: "provider" as never, model: "phase-model" },
+      },
     );
 
     testState.completeProjectFileRead(null);
@@ -328,6 +333,12 @@ describe.each([
       "Read the playbook. ",
     );
     expect(testState.draftStore.setPrompt.mock.invocationCallOrder[0]).toBeLessThan(
+      testState.router.navigate.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(testState.draftStore.setDraftThreadContext).toHaveBeenCalledWith(opened?.draftId, {
+      sharedTask: { taskId: "task", stepId: "work", environmentId: "environment-ssh" },
+    });
+    expect(testState.draftStore.setModelSelection.mock.invocationCallOrder[0]).toBeLessThan(
       testState.router.navigate.mock.invocationCallOrder[0] ?? 0,
     );
   });
@@ -349,27 +360,43 @@ describe.each([
 });
 
 describe("useNewThreadHandler", () => {
-  it("keeps the text of a draft that gained some while it waited", async () => {
-    testState.reset(null);
-    const raced = {
-      draftId: "draft-raced",
-      environmentId: "environment-ssh",
-      promotedTo: null,
-      threadId: "thread-raced",
-    };
-    testState.draftStore.getDraftSessionByLogicalProjectKey
-      .mockReturnValueOnce(null)
-      .mockReturnValueOnce(raced as never);
-    testState.giveUserText("draft-raced");
+  it.each([false, true])(
+    "keeps an invested draft intact when opening another prompt (task: %s)",
+    async (forTask) => {
+      testState.reset(null);
+      const raced = {
+        draftId: "draft-raced",
+        environmentId: "environment-ssh",
+        promotedTo: null,
+        threadId: "thread-raced",
+      };
+      testState.draftStore.getDraftSessionByLogicalProjectKey
+        .mockReturnValueOnce(null)
+        .mockReturnValueOnce(raced as never);
+      testState.giveUserText("draft-raced");
 
-    const opened = await useNewThreadHandler()(
-      { environmentId: "environment-ssh", projectId: "project-remote" } as never,
-      { prompt: "Read the playbook. " },
-    );
+      const opened = await useNewThreadHandler()(
+        { environmentId: "environment-ssh", projectId: "project-remote" } as never,
+        {
+          prompt: "Read the playbook. ",
+          ...(forTask
+            ? { sharedTask: { taskId: "task", stepId: "work", environmentId: "environment-ssh" } }
+            : {}),
+        },
+      );
 
-    expect(opened?.draftId).toBe("draft-raced");
-    expect(testState.draftStore.setPrompt).not.toHaveBeenCalled();
-  });
+      if (forTask) {
+        expect(opened).toBeNull();
+        expect(testState.router.navigate).not.toHaveBeenCalled();
+        expect(testState.draftStore.setLogicalProjectDraftThreadId).not.toHaveBeenCalled();
+        expect(testState.draftStore.setDraftThreadContext).not.toHaveBeenCalled();
+        expect(testState.draftStore.setModelSelection).not.toHaveBeenCalled();
+      } else {
+        expect(opened?.draftId).toBe("draft-raced");
+      }
+      expect(testState.draftStore.setPrompt).not.toHaveBeenCalled();
+    },
+  );
 
   it("seeds the prompt into the empty draft that is already open", async () => {
     testState.reset(null);

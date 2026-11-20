@@ -110,6 +110,17 @@ export const SharedTask = Schema.Struct({
 });
 export type SharedTask = typeof SharedTask.Type;
 
+export function sharedTaskThreads(task: Pick<SharedTask, "threads" | "steps">) {
+  const links = new Map<string, SharedTaskThread>();
+  for (const thread of [
+    ...task.threads,
+    ...task.steps.flatMap((step) => (step.thread ? [step.thread] : [])),
+  ]) {
+    links.set(JSON.stringify([thread.environmentId ?? null, thread.threadId]), thread);
+  }
+  return [...links.values()];
+}
+
 export const SharedTaskSummary = SharedTask.mapFields(
   Struct.pick([
     "id",
@@ -126,6 +137,7 @@ export const SharedTaskSummary = SharedTask.mapFields(
   ]),
 ).mapFields((fields) => ({
   ...fields,
+  threads: Schema.Array(SharedTaskThread).check(Schema.isMaxLength(150)),
   goalExcerpt: Text,
   nextStepExcerpt: Text,
   blockedReason: Schema.NullOr(Text),
@@ -147,16 +159,23 @@ export const SharedTaskEvent = Schema.Struct({
 export type SharedTaskEvent = typeof SharedTaskEvent.Type;
 
 export const SharedTaskListInput = Schema.Struct({
+  taskId: Schema.optional(TrimmedNonEmptyString),
   projectId: Schema.optional(TrimmedNonEmptyString),
+  statuses: Schema.optional(Schema.Array(SharedTaskStatus).check(Schema.isMaxLength(7))),
+  tag: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(80))),
+  focused: Schema.optional(Schema.Boolean),
+  threads: Schema.optional(Schema.Array(SharedTaskThread).check(Schema.isMaxLength(1000))),
   query: Schema.optional(Schema.String.check(Schema.isMaxLength(300))),
   includeArchived: Schema.optional(Schema.Boolean),
   limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(200))),
+  offset: Schema.optional(NonNegativeInt),
 });
 export type SharedTaskListInput = typeof SharedTaskListInput.Type;
 export const SharedTaskSnapshot = Schema.Struct({
   revision: NonNegativeInt,
   tasks: Schema.Array(SharedTaskSummary),
   total: NonNegativeInt,
+  tags: Schema.optional(Schema.Array(Schema.String)),
 });
 export type SharedTaskSnapshot = typeof SharedTaskSnapshot.Type;
 
@@ -206,6 +225,13 @@ export const SharedTaskUpdateInput = Schema.Struct({
   note: Note,
 });
 export type SharedTaskUpdateInput = typeof SharedTaskUpdateInput.Type;
+
+export const SharedTaskLinkThreadInput = Schema.Struct({
+  taskId: TrimmedNonEmptyString,
+  stepId: Schema.optional(TrimmedNonEmptyString),
+  thread: SharedTaskThread,
+});
+export type SharedTaskLinkThreadInput = typeof SharedTaskLinkThreadInput.Type;
 
 export const SharedTaskProgressInput = Schema.Struct({
   taskId: TrimmedNonEmptyString,

@@ -84,8 +84,10 @@ export function multipleModelSendBlock(input: {
   readonly isLocalDraftThread: boolean;
   readonly isGitRepo: boolean;
   readonly branch: string | null;
-}): "server-outdated" | "needs-new-git-thread" | null {
+  readonly hasTaskStep?: boolean;
+}): "server-outdated" | "needs-new-git-thread" | "task-step-needs-one-model" | null {
   if (!input.serverSupportsWorktreeBootstrap) return "server-outdated";
+  if (input.hasTaskStep && input.selectionCount > 1) return "task-step-needs-one-model";
   if (
     !input.isLocalDraftThread ||
     !input.isGitRepo ||

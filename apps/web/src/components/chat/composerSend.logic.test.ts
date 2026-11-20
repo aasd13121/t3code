@@ -110,6 +110,10 @@ describe("multipleModelSendBlock", () => {
 
   it("lets a new Git draft with a branch and models start", () => {
     expect(multipleModelSendBlock(ready)).toBeNull();
+    expect(multipleModelSendBlock({ ...ready, hasTaskStep: true })).toBe(
+      "task-step-needs-one-model",
+    );
+    expect(multipleModelSendBlock({ ...ready, hasTaskStep: true, selectionCount: 1 })).toBeNull();
   });
 
   it("asks for a server update before checking the draft", () => {

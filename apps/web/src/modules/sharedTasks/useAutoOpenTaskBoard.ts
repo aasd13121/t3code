@@ -1,34 +1,29 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef, SharedTaskStatus } from "@t3tools/contracts";
+import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { useEffect } from "react";
 
 import { getPanelModule } from "../panelModules";
 import { useRightPanelStore } from "../../rightPanelStore";
+import { useThreadShells } from "../../state/entities";
+import { threadFamilies } from "../../state/threads";
 import { useEnvironmentQuery } from "../../state/query";
 import { sharedTaskEnvironment } from "../../state/sharedTasks";
+import { taskBoardFamilyThreadIds, taskBoardHasWork } from "./taskBoardAutoOpen";
 
 const TASK_BOARD_MODULE_ID = "shared-tasks";
 
-const OPEN_TASK_STATUSES: ReadonlySet<SharedTaskStatus> = new Set([
-  "todo",
-  "doing",
-  "waiting",
-  "blocked",
-  "paused",
-]);
-
 /**
- * Shows the task board on its own once this conversation has work on it: a task
- * linked to this thread, to a thread it was forked from, or, on a thread that
- * has not run yet, an in-progress task in the same project. Respects a board the
- * user closed.
+ * Opens the task board while this conversation shares a task with another thread
+ * in its fork tree, or, on an unstarted thread, an in-progress task of the project.
+ * Respects a board the user closed.
  */
 export function useAutoOpenTaskBoard(input: {
   readonly threadRef: ScopedThreadRef | null;
   readonly projectId: string | null;
   readonly isFreshThread: boolean;
-  /** Parent thread of a forked conversation; its tasks carry over to the fork. */
-  readonly forkSourceThreadId: string | null;
+  /** Root of this conversation's fork tree; lineages sharing it belong together. */
+  readonly threadTreeRootId: string | null;
+  readonly parentThreadId: string | null;
 }): void {
   const environmentId = input.threadRef?.environmentId ?? null;
   const threadId = input.threadRef?.threadId ?? null;
@@ -36,48 +31,61 @@ export function useAutoOpenTaskBoard(input: {
   const isFreshThread = input.isFreshThread;
   const projectId = input.projectId;
   const threadRef = input.threadRef;
-  const forkSourceThreadId = input.forkSourceThreadId;
+  const threadTreeRootId = input.threadTreeRootId;
+  const shells = useThreadShells(threadRef !== null);
+  const family = useEnvironmentQuery(
+    environmentId === null || threadId === null || threadTreeRootId === null
+      ? null
+      : threadFamilies.familyAtom(environmentId, threadId as ThreadId),
+  );
+  const familyThreadIds = taskBoardFamilyThreadIds({
+    threadId,
+    threadTreeRootId,
+    parentThreadId: input.parentThreadId,
+    environmentId: environmentId ?? "",
+    threads: [
+      ...shells,
+      ...(family.data?.threads ?? []).map((thread) => ({
+        ...thread,
+        environmentId: environmentId ?? "",
+      })),
+    ],
+  });
   const snapshot = useEnvironmentQuery(
     environmentId === null
       ? null
-      : sharedTaskEnvironment.subscribe({ environmentId, input: { limit: 200 } }),
+      : sharedTaskEnvironment.subscribe({
+          environmentId,
+          input: {
+            limit: 1,
+            statuses: ["todo", "doing", "waiting", "blocked", "paused"],
+            threads: [...familyThreadIds].sort().map((threadId) => ({ threadId, environmentId })),
+          },
+        }),
   );
-  const tasks = snapshot.data?.tasks ?? null;
+  const projectSnapshot = useEnvironmentQuery(
+    environmentId === null || !isFreshThread || projectId === null
+      ? null
+      : sharedTaskEnvironment.subscribe({
+          environmentId,
+          input: { projectId, statuses: ["doing"], limit: 1 },
+        }),
+  );
+  const tasks = [...(snapshot.data?.tasks ?? []), ...(projectSnapshot.data?.tasks ?? [])];
+  const hasWork = taskBoardHasWork({
+    tasks,
+    familyThreadIds,
+    environmentId: environmentId ?? "",
+    isFreshThread,
+    projectId,
+  });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the right-panel store in step with this thread's tasks
   useEffect(() => {
-    if (threadKey === null || threadRef === null || environmentId === null || tasks === null) {
+    if (threadKey === null || threadRef === null || !hasWork) {
       return;
     }
-    const relevant = tasks.some((task) => {
-      if (!OPEN_TASK_STATUSES.has(task.status)) return false;
-      if (
-        task.threads.some(
-          (thread) =>
-            (thread.threadId === threadId || thread.threadId === forkSourceThreadId) &&
-            (thread.environmentId ?? environmentId) === environmentId,
-        )
-      ) {
-        return true;
-      }
-      return (
-        isFreshThread &&
-        projectId !== null &&
-        task.status === "doing" &&
-        task.projectId === projectId
-      );
-    });
-    if (!relevant) return;
     const module = getPanelModule(TASK_BOARD_MODULE_ID);
     if (!module) return;
     useRightPanelStore.getState().openModuleAutomatic(threadRef, module.id, module.title);
-  }, [
-    environmentId,
-    forkSourceThreadId,
-    isFreshThread,
-    projectId,
-    tasks,
-    threadId,
-    threadKey,
-    threadRef,
-  ]);
+  }, [hasWork, threadKey, threadRef]);
 }

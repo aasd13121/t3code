@@ -41,7 +41,6 @@ import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } fr
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import { T, useGT } from "gt-react";
 
-import { useComposerDraftStore } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
@@ -159,6 +158,10 @@ export function SharedTasksBoard(search: {
   const [status, setStatus] = useState("active");
   const [tag, setTag] = useState("all");
   const [focusedOnly, setFocusedOnly] = useState(false);
+  const filterKey = JSON.stringify([environmentId, query, status, tag, focusedOnly]);
+  const [pagination, setPagination] = useState({ key: "", offset: 0 });
+  const offset = pagination.key === filterKey ? pagination.offset : 0;
+  const pageSize = 50;
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<SharedTask | null>(null);
   const [pendingTask, setPendingTask] = useState<string | null>(null);
@@ -169,8 +172,14 @@ export function SharedTasksBoard(search: {
       : sharedTaskEnvironment.subscribe({
           environmentId,
           input: {
-            includeArchived: true,
-            limit: 200,
+            includeArchived: status === "archived",
+            limit: pageSize,
+            offset,
+            ...(status === "all"
+              ? {}
+              : { statuses: status === "active" ? activeStatuses : [status as SharedTaskStatus] }),
+            ...(focusedOnly ? { focused: true } : {}),
+            ...(tag !== "all" ? { tag } : {}),
             ...(query.trim() ? { query: query.trim() } : {}),
           },
         }),
@@ -179,18 +188,21 @@ export function SharedTasksBoard(search: {
   const canUpdate = useAtomValue(sharedTaskEnvironment.update.permissionAtom(environmentId));
   const update = useAtomCommand(sharedTaskEnvironment.update);
   const tasks = snapshot.data?.tasks ?? [];
-  const tags = [...new Set(tasks.flatMap((task) => task.tags))].sort();
-  const visible = tasks.filter(
-    (task) =>
-      (status === "all"
-        ? task.status !== "archived"
-        : status === "active"
-          ? activeStatuses.includes(task.status)
-          : task.status === status) &&
-      (!focusedOnly || task.focused) &&
-      (tag === "all" || task.tags.includes(tag)),
-  );
-  const selectedVersion = tasks.find((task) => task.id === selectedTaskId)?.version;
+  const tags = [
+    ...new Set([
+      ...(snapshot.data?.tags ?? tasks.flatMap((task) => task.tags)),
+      ...(tag === "all" ? [] : [tag]),
+    ]),
+  ].sort();
+  const visible = tasks;
+  const hasFilters = query.trim().length > 0 || status !== "all" || tag !== "all" || focusedOnly;
+  const total = snapshot.data?.total ?? 0;
+  if (!snapshot.isPending && snapshot.data && offset > 0 && offset >= total) {
+    setPagination({
+      key: filterKey,
+      offset: Math.max(0, Math.ceil(total / pageSize) - 1) * pageSize,
+    });
+  }
   const selectTask = (taskId?: string) => {
     if (environmentId === null) return;
     if (panel) {
@@ -362,7 +374,7 @@ export function SharedTasksBoard(search: {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
               {gt("{count} tasks{sync}", {
-                count: visible.length,
+                count: total,
                 sync: snapshot.isPending ? ` · ${gt("Syncing")}` : "",
               })}
             </p>
@@ -397,15 +409,17 @@ export function SharedTasksBoard(search: {
               <ListTodoIcon aria-hidden="true" className="mx-auto size-8 text-muted-foreground" />
               <h3 className="mt-4 font-medium">
                 {gt(
-                  tasks.length
+                  hasFilters
                     ? "No tasks match these filters"
                     : "Start with a goal to track over time",
                 )}
               </h3>
-              <p className="mt-2 text-sm text-muted-foreground">
-                <T>Save a goal and next step so a later session can continue.</T>
-              </p>
-              {tasks.length === 0 ? (
+              {!hasFilters ? (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  <T>Save a goal and next step so a later session can continue.</T>
+                </p>
+              ) : null}
+              {!hasFilters ? (
                 <div className="mt-5">
                   <Button onClick={() => setCreating(true)} disabled={!canCreate}>
                     <T>New task</T>
@@ -427,13 +441,30 @@ export function SharedTasksBoard(search: {
               ))}
             </div>
           )}
-          {snapshot.data && snapshot.data.total > tasks.length ? (
-            <p className="text-sm text-muted-foreground">
-              <T>
-                Showing the {tasks.length} most recent tasks. Search by title or goal to find older
-                tasks.
-              </T>
-            </p>
+          {total > pageSize ? (
+            <nav aria-label="任务分页" className="flex items-center justify-between gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={offset === 0 || snapshot.isPending}
+                onClick={() =>
+                  setPagination({ key: filterKey, offset: Math.max(0, offset - pageSize) })
+                }
+              >
+                上一页
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {offset + 1}–{Math.min(offset + tasks.length, total)} / {total}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={offset + pageSize >= total || snapshot.isPending}
+                onClick={() => setPagination({ key: filterKey, offset: offset + pageSize })}
+              >
+                下一页
+              </Button>
+            </nav>
           ) : null}
           {!canCreate && environmentId !== null ? (
             <p className="text-sm text-muted-foreground">
@@ -450,7 +481,6 @@ export function SharedTasksBoard(search: {
           key={environmentId + ":" + selectedTaskId}
           environmentId={environmentId}
           taskId={selectedTaskId}
-          summaryVersion={selectedVersion}
           onClose={() => selectTask()}
           onThreadOpened={panel ? () => selectTask() : undefined}
           onEdit={setEditing}
@@ -598,19 +628,26 @@ function TaskCard({
 function TaskDetail({
   environmentId,
   taskId,
-  summaryVersion,
   onClose,
   onThreadOpened,
   onEdit,
 }: {
   environmentId: EnvironmentId;
   taskId: string;
-  summaryVersion: number | undefined;
   onClose: () => void;
   onThreadOpened?: (() => void) | undefined;
   onEdit: (task: SharedTask) => void;
 }) {
   const [historyLimit, setHistoryLimit] = useState(10);
+  const [view, setView] = useState<"work" | "history">("work");
+  const [showCompleted, setShowCompleted] = useState(false);
+  const taskSnapshot = useEnvironmentQuery(
+    sharedTaskEnvironment.subscribe({
+      environmentId,
+      input: { taskId, includeArchived: true, limit: 1 },
+    }),
+  );
+  const summaryVersion = taskSnapshot.data?.tasks[0]?.version;
   const detail = useEnvironmentQuery(
     sharedTaskEnvironment.get({
       environmentId,
@@ -633,6 +670,7 @@ function TaskDetail({
   const newThread = useNewThreadHandler();
   const { copyToClipboard } = useCopyToClipboard();
   const task = detail.data?.task;
+  const completedStepCount = task?.steps.filter((step) => step.status === "done").length ?? 0;
   const openThread = async (threadRef: ScopedThreadRef) => {
     await navigate({
       to: "/$environmentId/$threadId",
@@ -654,7 +692,7 @@ function TaskDetail({
     if (
       summaryVersion !== undefined &&
       detailVersion !== undefined &&
-      detailVersion !== summaryVersion
+      detailVersion < summaryVersion
     )
       refreshDetail();
   }, [summaryVersion, detailVersion, refreshDetail]);
@@ -685,6 +723,7 @@ function TaskDetail({
     try {
       const started = await newThread(scopeProjectRef(environmentId, selectedProject.id), {
         prompt: sharedTaskResumePrompt(task.id),
+        sharedTask: { taskId: task.id, environmentId },
       });
       if (started) onThreadOpened?.();
       else setError("会话未创建。请确认项目仍可用。");
@@ -715,47 +754,37 @@ function TaskDetail({
       }
     }
     void mutate(
-      { steps: steps.slice(0, 100), ...(task.status === "todo" ? { status: "doing" } : {}) },
+      {
+        steps: steps.slice(0, 100),
+        ...(task.status === "done" && steps.some((step) => step.status !== "done")
+          ? { status: "doing" }
+          : {}),
+      },
       "应用阶段预设：" + preset.name,
     );
   };
   const launchPhase = async (step: SharedTaskStep) => {
     if (!task || !step.model || !selectedProject || busy || launchingPhaseRef.current) return;
     launchingPhaseRef.current = true;
+    setBusy(true);
     setError(null);
     try {
       const started = await newThread(scopeProjectRef(environmentId, selectedProject.id), {
         prompt: sharedTaskResumePrompt(task.id, step.id),
+        sharedTask: { taskId: task.id, environmentId, stepId: step.id },
+        modelSelection: createModelSelection(
+          step.model.instanceId as ProviderInstanceId,
+          step.model.model,
+        ),
       });
       if (!started) {
         setError("会话未创建。请确认项目仍可用。");
         return;
       }
-      useComposerDraftStore
-        .getState()
-        .setModelSelection(
-          started.draftId,
-          createModelSelection(step.model.instanceId as ProviderInstanceId, step.model.model),
-          { replaceOptions: true },
-        );
-      await mutate(
-        {
-          steps: task.steps.map((value) =>
-            value.id === step.id
-              ? {
-                  ...value,
-                  status: "doing",
-                  thread: { threadId: started.threadId, environmentId },
-                }
-              : value,
-          ),
-          ...(task.status === "todo" ? { status: "doing" } : {}),
-        },
-        "开始阶段（模型 " + (step.model.label ?? step.model.model) + "）：" + step.title,
-      );
       onThreadOpened?.();
     } finally {
       launchingPhaseRef.current = false;
+      setBusy(false);
     }
   };
   const exportRecord = () => {
@@ -776,10 +805,36 @@ function TaskDetail({
         if (!open) onClose();
       }}
     >
-      <DialogPopup className="max-h-[85dvh]">
+      <DialogPopup className="max-h-[90dvh] w-full max-w-[70rem]">
         <DialogHeader>
           <DialogTitle>{task?.title ?? "任务详情"}</DialogTitle>
-          <DialogDescription>同一项任务的目标、步骤和跨会话进度。</DialogDescription>
+          <DialogDescription>查看目标与阶段，继续跟进并记录本次进展。</DialogDescription>
+          {task ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <StatusBadge status={task.status} />
+              <span className="text-xs text-muted-foreground">
+                已完成 {completedStepCount}/{task.steps.length} · 更新于 {dateLabel(task.updatedAt)}
+              </span>
+            </div>
+          ) : null}
+          <nav aria-label="任务详情视图" className="flex gap-2">
+            <Button
+              size="sm"
+              variant={view === "work" ? "secondary" : "ghost"}
+              aria-pressed={view === "work"}
+              onClick={() => setView("work")}
+            >
+              任务与操作
+            </Button>
+            <Button
+              size="sm"
+              variant={view === "history" ? "secondary" : "ghost"}
+              aria-pressed={view === "history"}
+              onClick={() => setView("history")}
+            >
+              进度历史
+            </Button>
+          </nav>
         </DialogHeader>
         <DialogPanel>
           {detail.error || error ? (
@@ -792,342 +847,393 @@ function TaskDetail({
               {detail.isPending ? "正在读取任务…" : "任务暂不可用。"}
             </p>
           ) : (
-            <div className="space-y-6">
-              <div className="flex flex-wrap items-center gap-3">
-                <StatusBadge status={task.status} />
-                <span className="text-xs text-muted-foreground">
-                  更新于 {dateLabel(task.updatedAt)}
-                </span>
-              </div>
-              <dl className="space-y-4 text-sm">
-                <div>
-                  <dt className="mb-1 font-medium">目标</dt>
-                  <dd className="whitespace-pre-wrap break-words">{task.goal || "尚未填写"}</dd>
-                </div>
-                <div>
-                  <dt className="mb-1 font-medium">下一步</dt>
-                  <dd className="whitespace-pre-wrap break-words">{task.nextStep || "尚未填写"}</dd>
-                </div>
-                {task.blockedReason ? (
-                  <div>
-                    <dt className="mb-1 font-medium text-destructive">阻塞原因</dt>
-                    <dd className="whitespace-pre-wrap break-words text-destructive">
-                      {task.blockedReason}
-                    </dd>
-                  </div>
-                ) : null}
-              </dl>
-              {task.steps.length ? (
-                <section className="space-y-3" aria-label="协作进度">
-                  <h3 className="text-sm font-medium">分工进度</h3>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {sharedTaskAssigneeProgress(task.steps).map((group) => (
-                      <div
-                        key={JSON.stringify(group.assignee)}
-                        className="space-y-1 rounded-lg border p-3 text-sm"
-                      >
-                        <p className="break-words font-medium">{group.assignee ?? "未分配"}</p>
-                        <p className="text-xs text-muted-foreground">
-                          已完成 {group.completedSteps}/{group.stepCount} · 进行中{" "}
-                          {group.doingSteps}
-                        </p>
+            <div>
+              <div hidden={view !== "work"}>
+                <div className="grid items-start gap-6 md:grid-cols-[minmax(0,1fr)_18rem] lg:grid-cols-[minmax(0,1fr)_20rem]">
+                  <div className="min-w-0 space-y-5">
+                    <dl className="space-y-4 text-sm">
+                      <div>
+                        <dt className="mb-1 font-medium">目标</dt>
+                        <dd className="whitespace-pre-wrap break-words">
+                          {task.goal.length > 300 ? (
+                            <details>
+                              <summary className="cursor-pointer text-muted-foreground">
+                                {task.goal.slice(0, 180)}… 展开目标
+                              </summary>
+                              <p className="mt-2">{task.goal}</p>
+                            </details>
+                          ) : (
+                            task.goal || "尚未填写"
+                          )}
+                        </dd>
                       </div>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-              <section className="space-y-3" aria-label="任务步骤">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-medium">
-                    步骤 · {task.steps.filter((step) => step.status === "done").length} /{" "}
-                    {task.steps.length}
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    <Select
-                      value={detailPresetId}
-                      onValueChange={(value) => setDetailPresetId(value ?? "")}
-                    >
-                      <SelectTrigger aria-label="选择阶段预设" className="h-8 w-48">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectPopup>
-                        <SelectItem value="">选择预设…</SelectItem>
-                        {detailPresets.map((preset) => (
-                          <SelectItem key={preset.id} value={preset.id}>
-                            {preset.name}
-                          </SelectItem>
+                      <div>
+                        <dt className="mb-1 font-medium">下一步</dt>
+                        <dd className="whitespace-pre-wrap break-words">
+                          {task.nextStep || "尚未填写"}
+                        </dd>
+                      </div>
+                      {task.blockedReason ? (
+                        <div>
+                          <dt className="mb-1 font-medium text-destructive">阻塞原因</dt>
+                          <dd className="whitespace-pre-wrap break-words text-destructive">
+                            {task.blockedReason}
+                          </dd>
+                        </div>
+                      ) : null}
+                    </dl>
+                    {task.steps.length ? (
+                      <section className="space-y-3" aria-label="协作进度">
+                        <h3 className="text-sm font-medium">分工进度</h3>
+                        <div className="flex flex-wrap gap-2">
+                          {sharedTaskAssigneeProgress(task.steps).map((group) => (
+                            <div
+                              key={JSON.stringify(group.assignee)}
+                              className="space-y-1 rounded-lg bg-muted/40 px-3 py-2 text-sm"
+                            >
+                              <p className="break-words font-medium">
+                                {group.assignee ?? "未分配"}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                已完成 {group.completedSteps}/{group.stepCount} · 进行中{" "}
+                                {group.doingSteps}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    ) : null}
+                    <section className="space-y-3" aria-label="任务步骤">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="text-sm font-medium">
+                          步骤 · {task.steps.filter((step) => step.status === "done").length} /{" "}
+                          {task.steps.length}
+                        </h3>
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value={detailPresetId}
+                            onValueChange={(value) => setDetailPresetId(value ?? "")}
+                          >
+                            <SelectTrigger aria-label="选择阶段预设" className="w-36">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectPopup>
+                              <SelectItem value="">选择预设…</SelectItem>
+                              {detailPresets.map((preset) => (
+                                <SelectItem key={preset.id} value={preset.id}>
+                                  {preset.name}
+                                </SelectItem>
+                              ))}
+                            </SelectPopup>
+                          </Select>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!canUpdate || busy || !detailPresetId}
+                            onClick={applyPreset}
+                          >
+                            应用预设
+                          </Button>
+                        </div>
+                      </div>
+                      {task.steps
+                        .filter(
+                          (step) =>
+                            showCompleted ||
+                            step.status !== "done" ||
+                            step.id === assigningStepId ||
+                            step.id === modelStepId,
+                        )
+                        .map((step) => (
+                          <div
+                            key={step.id}
+                            className="space-y-2 rounded-lg border p-3 text-sm"
+                            role="group"
+                            aria-label={"步骤：" + step.title}
+                          >
+                            <div className="flex items-start gap-3">
+                              <label className="flex min-w-0 flex-1 items-start gap-3">
+                                <input
+                                  type="checkbox"
+                                  className="mt-1 size-4 accent-primary"
+                                  aria-label={"完成步骤：" + step.title}
+                                  checked={step.status === "done"}
+                                  disabled={!canUpdate || busy}
+                                  onChange={(event) =>
+                                    void mutate(
+                                      {
+                                        steps: task.steps.map((value) =>
+                                          value.id === step.id
+                                            ? {
+                                                ...value,
+                                                status: event.target.checked ? "done" : "todo",
+                                              }
+                                            : value,
+                                        ),
+                                        ...(!event.target.checked && task.status === "done"
+                                          ? { status: "doing" }
+                                          : {}),
+                                      },
+                                      (event.target.checked ? "完成步骤：" : "重新打开步骤：") +
+                                        step.title,
+                                    )
+                                  }
+                                />
+                                <span className="min-w-0 break-words">{step.title}</span>
+                              </label>
+                              <span className="shrink-0 text-xs text-muted-foreground">
+                                {statusLabels[step.status]}
+                              </span>
+                            </div>
+                            <p className="break-words text-xs text-muted-foreground">
+                              负责人：{step.assignee ?? "未分配"}
+                              {step.model ? ` · 模型：${step.model.label ?? step.model.model}` : ""}
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {step.status === "todo" && (!step.model || step.thread) ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={!canUpdate || busy}
+                                  onClick={() =>
+                                    void mutate(
+                                      {
+                                        steps: task.steps.map((value) =>
+                                          value.id === step.id
+                                            ? { ...value, status: "doing" }
+                                            : value,
+                                        ),
+                                        ...(task.status === "todo" ? { status: "doing" } : {}),
+                                      },
+                                      "开始步骤：" + step.title,
+                                    )
+                                  }
+                                >
+                                  标记开始
+                                </Button>
+                              ) : null}
+                              {step.model && !step.thread && step.status !== "done" ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={!canUpdate || busy || !selectedProject}
+                                  onClick={() => void launchPhase(step)}
+                                >
+                                  <PlayIcon aria-hidden="true" />
+                                  准备阶段会话
+                                </Button>
+                              ) : null}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={!canUpdate || busy}
+                                onClick={() =>
+                                  setAssigningStepId(assigningStepId === step.id ? null : step.id)
+                                }
+                              >
+                                设置分工
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={!canUpdate || busy}
+                                onClick={() =>
+                                  setModelStepId(modelStepId === step.id ? null : step.id)
+                                }
+                              >
+                                设置模型
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() =>
+                                  copyToClipboard(sharedTaskResumePrompt(task.id, step.id))
+                                }
+                              >
+                                复制步骤指令
+                              </Button>
+                              {step.thread ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    if (!step.thread) return;
+                                    void openThread(
+                                      scopeThreadRef(
+                                        (step.thread.environmentId ??
+                                          environmentId) as EnvironmentId,
+                                        step.thread.threadId as ThreadId,
+                                      ),
+                                    );
+                                  }}
+                                >
+                                  <MessageSquareIcon aria-hidden="true" />
+                                  打开负责人会话
+                                </Button>
+                              ) : null}
+                            </div>
+                            {assigningStepId === step.id ? (
+                              <TaskStepAssignmentForm
+                                key={step.id}
+                                environmentId={environmentId}
+                                task={task}
+                                step={step}
+                                onRefresh={detail.refresh}
+                                onClose={() => setAssigningStepId(null)}
+                                onSaved={() => {
+                                  setAssigningStepId(null);
+                                  detail.refresh();
+                                }}
+                              />
+                            ) : null}
+                            {modelStepId === step.id ? (
+                              <TaskStepModelForm
+                                key={step.id}
+                                environmentId={environmentId}
+                                task={task}
+                                step={step}
+                                onRefresh={detail.refresh}
+                                onClose={() => setModelStepId(null)}
+                                onSaved={() => {
+                                  setModelStepId(null);
+                                  detail.refresh();
+                                }}
+                              />
+                            ) : null}
+                          </div>
                         ))}
-                      </SelectPopup>
-                    </Select>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={!canUpdate || busy || !detailPresetId}
-                      onClick={applyPreset}
-                    >
-                      应用预设
-                    </Button>
-                  </div>
-                </div>
-                {task.steps.map((step) => (
-                  <div
-                    key={step.id}
-                    className="space-y-3 rounded-lg border p-3 text-sm"
-                    role="group"
-                    aria-label={"步骤：" + step.title}
-                  >
-                    <div className="flex items-start gap-3">
-                      <label className="flex min-w-0 flex-1 items-start gap-3">
-                        <input
-                          type="checkbox"
-                          className="mt-1 size-4 accent-primary"
-                          aria-label={"完成步骤：" + step.title}
-                          checked={step.status === "done"}
-                          disabled={!canUpdate || busy}
-                          onChange={(event) =>
-                            void mutate(
-                              {
-                                steps: task.steps.map((value) =>
-                                  value.id === step.id
-                                    ? { ...value, status: event.target.checked ? "done" : "todo" }
-                                    : value,
-                                ),
-                                ...(!event.target.checked && task.status === "done"
-                                  ? { status: "doing" }
-                                  : {}),
-                              },
-                              (event.target.checked ? "完成步骤：" : "重新打开步骤：") + step.title,
-                            )
-                          }
-                        />
-                        <span className="min-w-0 break-words">{step.title}</span>
-                      </label>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {statusLabels[step.status]}
-                      </span>
-                    </div>
-                    <p className="break-words text-xs text-muted-foreground">
-                      负责人：{step.assignee ?? "未分配"}
-                      {step.model ? ` · 模型：${step.model.label ?? step.model.model}` : ""}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {step.status === "todo" ? (
+                      {completedStepCount > 0 ? (
                         <Button
                           size="sm"
-                          variant="outline"
-                          disabled={!canUpdate || busy}
-                          onClick={() =>
-                            void mutate(
-                              {
-                                steps: task.steps.map((value) =>
-                                  value.id === step.id ? { ...value, status: "doing" } : value,
-                                ),
-                                ...(task.status === "todo" ? { status: "doing" } : {}),
-                              },
-                              "开始步骤：" + step.title,
-                            )
-                          }
+                          variant="ghost"
+                          aria-expanded={showCompleted}
+                          onClick={() => setShowCompleted(!showCompleted)}
                         >
-                          开始步骤
+                          {showCompleted
+                            ? "收起已完成步骤"
+                            : `显示已完成步骤（${completedStepCount}）`}
                         </Button>
                       ) : null}
-                      {step.model && !step.thread && step.status !== "done" ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={!canUpdate || busy || !selectedProject}
-                          onClick={() => void launchPhase(step)}
-                        >
-                          <PlayIcon aria-hidden="true" />
-                          开始此阶段
-                        </Button>
-                      ) : null}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={!canUpdate || busy}
-                        onClick={() =>
-                          setAssigningStepId(assigningStepId === step.id ? null : step.id)
-                        }
-                      >
-                        设置分工
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={!canUpdate || busy}
-                        onClick={() => setModelStepId(modelStepId === step.id ? null : step.id)}
-                      >
-                        设置模型
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => copyToClipboard(sharedTaskResumePrompt(task.id, step.id))}
-                      >
-                        复制步骤指令
-                      </Button>
-                      {step.thread ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            if (!step.thread) return;
-                            void openThread(
-                              scopeThreadRef(
-                                (step.thread.environmentId ?? environmentId) as EnvironmentId,
-                                step.thread.threadId as ThreadId,
-                              ),
-                            );
+                      {canUpdate && task.steps.length < 100 ? (
+                        <form
+                          className="flex items-center gap-2"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            if (stepTitle.trim())
+                              void mutate(
+                                {
+                                  steps: [
+                                    ...task.steps,
+                                    {
+                                      id: SecureRandom.uuidV4Unsafe(),
+                                      title: stepTitle.trim(),
+                                      status: "todo",
+                                    },
+                                  ],
+                                  ...(task.status === "done" ? { status: "doing" } : {}),
+                                },
+                                "新增步骤：" + stepTitle.trim(),
+                              );
                           }}
                         >
-                          <MessageSquareIcon aria-hidden="true" />
-                          打开负责人会话
-                        </Button>
+                          <Input
+                            aria-label="新增步骤名称"
+                            list="shared-task-step-suggestions"
+                            value={stepTitle}
+                            onChange={(event) => setStepTitle(event.target.value.slice(0, 300))}
+                            placeholder="添加下一项实际步骤"
+                          />
+                          <datalist id="shared-task-step-suggestions">
+                            {detailTitleSuggestions.map((suggestion) => (
+                              <option key={suggestion} value={suggestion} />
+                            ))}
+                          </datalist>
+                          <Button
+                            type="submit"
+                            variant="outline"
+                            size="sm"
+                            disabled={busy || !stepTitle.trim()}
+                          >
+                            添加
+                          </Button>
+                        </form>
                       ) : null}
-                    </div>
-                    {assigningStepId === step.id ? (
-                      <TaskStepAssignmentForm
-                        key={step.id}
-                        environmentId={environmentId}
-                        task={task}
-                        step={step}
-                        onRefresh={detail.refresh}
-                        onClose={() => setAssigningStepId(null)}
-                        onSaved={() => {
-                          setAssigningStepId(null);
-                          detail.refresh();
-                        }}
-                      />
-                    ) : null}
-                    {modelStepId === step.id ? (
-                      <TaskStepModelForm
-                        key={step.id}
-                        environmentId={environmentId}
-                        task={task}
-                        step={step}
-                        onRefresh={detail.refresh}
-                        onClose={() => setModelStepId(null)}
-                        onSaved={() => {
-                          setModelStepId(null);
-                          detail.refresh();
-                        }}
-                      />
-                    ) : null}
+                    </section>
                   </div>
-                ))}
-                {canUpdate && task.steps.length < 100 ? (
-                  <form
-                    className="flex items-center gap-2"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (stepTitle.trim())
-                        void mutate(
-                          {
-                            steps: [
-                              ...task.steps,
-                              {
-                                id: SecureRandom.uuidV4Unsafe(),
-                                title: stepTitle.trim(),
-                                status: "todo",
-                              },
-                            ],
-                            ...(task.status === "done" ? { status: "doing" } : {}),
-                          },
-                          "新增步骤：" + stepTitle.trim(),
-                        );
-                    }}
-                  >
-                    <Input
-                      aria-label="新增步骤名称"
-                      list="shared-task-step-suggestions"
-                      value={stepTitle}
-                      onChange={(event) => setStepTitle(event.target.value.slice(0, 300))}
-                      placeholder="添加下一项实际步骤"
-                    />
-                    <datalist id="shared-task-step-suggestions">
-                      {detailTitleSuggestions.map((suggestion) => (
-                        <option key={suggestion} value={suggestion} />
-                      ))}
-                    </datalist>
-                    <Button
-                      type="submit"
-                      variant="outline"
-                      size="sm"
-                      disabled={busy || !stepTitle.trim()}
-                    >
-                      添加
-                    </Button>
-                  </form>
-                ) : null}
-              </section>
-              <section className="space-y-3" aria-label="继续跟进任务">
-                <h3 className="text-sm font-medium">继续跟进</h3>
-                <div className="flex flex-wrap gap-2">
-                  {task.threads.at(-1) ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        const thread = task.threads.at(-1)!;
-                        void openThread(
-                          scopeThreadRef(
-                            (thread.environmentId ?? environmentId) as EnvironmentId,
-                            thread.threadId as ThreadId,
-                          ),
-                        );
-                      }}
-                    >
-                      <MessageSquareIcon aria-hidden="true" />
-                      回到关联会话
-                    </Button>
-                  ) : null}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => copyToClipboard(sharedTaskResumePrompt(task.id))}
-                  >
-                    复制跟进指令
-                  </Button>
+                  <aside aria-label="跟进与记录" className="min-w-0 space-y-5">
+                    <section className="space-y-3" aria-label="继续跟进任务">
+                      <h3 className="text-sm font-medium">继续跟进</h3>
+                      <div className="flex flex-wrap gap-2">
+                        {task.threads.at(-1) ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const thread = task.threads.at(-1)!;
+                              void openThread(
+                                scopeThreadRef(
+                                  (thread.environmentId ?? environmentId) as EnvironmentId,
+                                  thread.threadId as ThreadId,
+                                ),
+                              );
+                            }}
+                          >
+                            <MessageSquareIcon aria-hidden="true" />
+                            回到关联会话
+                          </Button>
+                        ) : null}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => copyToClipboard(sharedTaskResumePrompt(task.id))}
+                        >
+                          复制跟进指令
+                        </Button>
+                      </div>
+                      <Select
+                        value={selectedProject?.id ?? "none"}
+                        onValueChange={(value) => setProjectId(value === "none" ? null : value)}
+                      >
+                        <SelectTrigger aria-label="选择跟进项目">
+                          <SelectValue placeholder="选择项目" />
+                        </SelectTrigger>
+                        <SelectPopup>
+                          <SelectItem value="none">选择跟进项目</SelectItem>
+                          {projects.map((project) => (
+                            <SelectItem key={project.id} value={project.id}>
+                              {project.title}
+                            </SelectItem>
+                          ))}
+                        </SelectPopup>
+                      </Select>
+                      <Button
+                        size="sm"
+                        disabled={!canUpdate || !selectedProject || busy}
+                        onClick={() => void startNewThread()}
+                      >
+                        <PlayIcon aria-hidden="true" />
+                        在新会话跟进
+                      </Button>
+                      <p className="text-xs text-muted-foreground">
+                        发送预填指令后关联任务；阶段会话发送成功后才标记开始。
+                      </p>
+                    </section>
+                    {canUpdate ? (
+                      <TaskProgressForm
+                        key={task.id}
+                        environmentId={environmentId}
+                        task={task}
+                        onSaved={detail.refresh}
+                      />
+                    ) : null}
+                  </aside>
                 </div>
-                <Select
-                  value={selectedProject?.id ?? "none"}
-                  onValueChange={(value) => setProjectId(value === "none" ? null : value)}
-                >
-                  <SelectTrigger aria-label="选择跟进项目">
-                    <SelectValue placeholder="选择项目" />
-                  </SelectTrigger>
-                  <SelectPopup>
-                    <SelectItem value="none">选择跟进项目</SelectItem>
-                    {projects.map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        {project.title}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-                <Button
-                  size="sm"
-                  disabled={!canUpdate || !selectedProject || busy}
-                  onClick={() => void startNewThread()}
-                >
-                  <PlayIcon aria-hidden="true" />
-                  在新会话跟进
-                </Button>
-                <p className="text-xs text-muted-foreground">
-                  打开会话后发送预填的指令，AI 会读取这项任务并持续更新进度。
-                </p>
-              </section>
-              {canUpdate ? (
-                <TaskProgressForm
-                  key={task.id}
-                  environmentId={environmentId}
-                  task={task}
-                  onSaved={detail.refresh}
-                />
-              ) : null}
-              <section className="space-y-3" aria-label="任务进度历史">
+              </div>
+              <section hidden={view !== "history"} className="space-y-3" aria-label="任务进度历史">
                 <h3 className="text-sm font-medium">进度记录</h3>
+                <p className="break-all text-xs text-muted-foreground">
+                  任务编号：{task.id} · 版本 {task.version}
+                </p>
                 {detail.data?.events.map((event) => (
                   <article key={event.id} className="space-y-2 border-l-2 pl-3">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -1172,43 +1278,42 @@ function TaskDetail({
                   </p>
                 ) : null}
               </section>
-              <p className="break-all text-xs text-muted-foreground">
-                任务编号：{task.id} · 版本 {task.version}
-              </p>
             </div>
           )}
         </DialogPanel>
         <DialogFooter>
-          <Button size="sm" variant="outline" disabled={!task} onClick={exportRecord}>
-            <DownloadIcon aria-hidden="true" />
-            导出记录
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!task || !canUpdate || busy}
-            onClick={() => {
-              if (task) onEdit(task);
-            }}
-          >
-            <PencilIcon aria-hidden="true" />
-            编辑
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!task || !canUpdate || busy}
-            onClick={() => {
-              if (task)
-                void mutate(
-                  { status: task.status === "archived" ? "todo" : "archived" },
-                  task.status === "archived" ? "恢复归档任务" : "归档任务",
-                );
-            }}
-          >
-            <ArchiveIcon aria-hidden="true" />
-            {task?.status === "archived" ? "恢复" : "归档"}
-          </Button>
+          <div className="flex w-full flex-wrap items-center justify-end gap-2">
+            <Button size="sm" variant="outline" disabled={!task} onClick={exportRecord}>
+              <DownloadIcon aria-hidden="true" />
+              导出记录
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!task || !canUpdate || busy}
+              onClick={() => {
+                if (task) onEdit(task);
+              }}
+            >
+              <PencilIcon aria-hidden="true" />
+              编辑
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!task || !canUpdate || busy}
+              onClick={() => {
+                if (task)
+                  void mutate(
+                    { status: task.status === "archived" ? "todo" : "archived" },
+                    task.status === "archived" ? "恢复归档任务" : "归档任务",
+                  );
+              }}
+            >
+              <ArchiveIcon aria-hidden="true" />
+              {task?.status === "archived" ? "恢复" : "归档"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogPopup>
     </Dialog>

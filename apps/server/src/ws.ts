@@ -2332,6 +2332,7 @@ export const layerWsRpc = (
         [WS_METHODS.sharedTasksCreate]: (input) => sharedTasks.create(input, { actor: "user" }),
         [WS_METHODS.sharedTasksUpdate]: (input) => sharedTasks.update(input, { actor: "user" }),
         [WS_METHODS.sharedTasksProgress]: (input) => sharedTasks.progress(input, { actor: "user" }),
+        [WS_METHODS.sharedTasksLinkThread]: (input) => sharedTasks.linkThread(input),
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>
           scheduledTasks.subscribeList().pipe(Stream.map(withVisibleWebhookUrls)),
         [WS_METHODS.scheduledTasksUpsert]: (input) => scheduledTasks.upsert(input),

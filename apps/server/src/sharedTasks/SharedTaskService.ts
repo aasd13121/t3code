@@ -5,6 +5,7 @@ import {
   type SharedTaskGetInput,
   type SharedTaskGetResult,
   type SharedTaskListInput,
+  type SharedTaskLinkThreadInput,
   type SharedTaskProgressInput,
   type SharedTaskSnapshot,
   type SharedTaskSource,
@@ -46,6 +47,9 @@ export class SharedTaskService extends Context.Service<
     readonly progress: (
       input: SharedTaskProgressInput,
       source: SharedTaskSource,
+    ) => Effect.Effect<SharedTask, SharedTaskError>;
+    readonly linkThread: (
+      input: SharedTaskLinkThreadInput,
     ) => Effect.Effect<SharedTask, SharedTaskError>;
     readonly subscribe: (
       input: SharedTaskListInput,
@@ -129,12 +133,21 @@ const makeInDirectory = Effect.fn("SharedTaskService.open")(function* (directory
     Effect.tap(() => refresh()),
   );
 
+  const linkThread = Effect.fn("SharedTaskService.linkThread")(
+    function* (input: SharedTaskLinkThreadInput) {
+      const now = DateTime.formatIso(yield* DateTime.now);
+      return yield* Effect.try({ try: () => store.linkThread(input, now), catch: storageError });
+    },
+    Effect.tap(() => refresh()),
+  );
+
   return SharedTaskService.of({
     list,
     get,
     create,
     update,
     progress,
+    linkThread,
     subscribe: (input) =>
       SubscriptionRef.changes(revision).pipe(
         Stream.mapEffect(() => list(input)),

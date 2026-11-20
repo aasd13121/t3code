@@ -1,5 +1,5 @@
 import * as NodeSqlite from "node:sqlite";
-import { SharedTaskError, sharedTaskAssigneeProgress } from "@t3tools/contracts";
+import { SharedTaskError, sharedTaskAssigneeProgress, sharedTaskThreads } from "@t3tools/contracts";
 import type {
   SharedTask,
   SharedTaskCreateInput,
@@ -7,11 +7,13 @@ import type {
   SharedTaskGetInput,
   SharedTaskGetResult,
   SharedTaskListInput,
+  SharedTaskLinkThreadInput,
   SharedTaskPatch,
   SharedTaskProgressInput,
   SharedTaskSnapshot,
   SharedTaskSource,
   SharedTaskSummary,
+  SharedTaskThread,
   SharedTaskUpdateInput,
 } from "@t3tools/contracts";
 
@@ -26,7 +28,7 @@ const summary = (task: SharedTask): SharedTaskSummary => ({
   projectId: task.projectId,
   workspaceRoot: task.workspaceRoot,
   updatedAt: task.updatedAt,
-  threads: task.threads,
+  threads: sharedTaskThreads(task),
   goalExcerpt: task.goal.slice(0, 700),
   nextStepExcerpt: task.nextStep.slice(0, 500),
   blockedReason: task.blockedReason,
@@ -231,6 +233,52 @@ export class SharedTaskStore {
     );
   }
 
+  linkThread(input: SharedTaskLinkThreadInput, now: string): SharedTask {
+    return this.#transaction(() => {
+      const before = this.#read(input.taskId);
+      const step =
+        input.stepId === undefined
+          ? undefined
+          : before.steps.find((step) => step.id === input.stepId);
+      const sameThread = (thread: SharedTaskThread) =>
+        thread.threadId === input.thread.threadId &&
+        thread.environmentId === input.thread.environmentId;
+      if (
+        before.threads.some(sameThread) &&
+        (input.stepId === undefined ||
+          (step?.thread && step.status !== "todo" && sameThread(step.thread)))
+      )
+        return before;
+      if (
+        before.status === "done" ||
+        before.status === "archived" ||
+        (input.stepId !== undefined && (!step || step.status === "done"))
+      ) {
+        throw new SharedTaskError({ reason: "invalid-state", taskId: input.taskId });
+      }
+      if (step?.thread && !sameThread(step.thread)) {
+        throw new SharedTaskError({ reason: "conflict", taskId: input.taskId });
+      }
+      return this.#apply(
+        input.taskId,
+        before.version,
+        step
+          ? {
+              steps: before.steps.map((value) =>
+                value.id === step.id
+                  ? { ...value, thread: input.thread, status: "doing" as const }
+                  : value,
+              ),
+              ...(before.status === "todo" ? { status: "doing" as const } : {}),
+            }
+          : {},
+        step ? "会话已发送，开始阶段：" + step.title : "关联跟进会话",
+        { actor: "user", ...input.thread },
+        now,
+      );
+    });
+  }
+
   progress(input: SharedTaskProgressInput, source: SharedTaskSource, now: string): SharedTask {
     return this.#transaction(() => {
       const before = this.#read(input.taskId);
@@ -303,6 +351,33 @@ export class SharedTaskStore {
       const clauses: string[] = [];
       const values: NodeSqlite.SQLInputValue[] = [];
       if (!input.includeArchived) clauses.push("status != 'archived'");
+      if (input.taskId) {
+        clauses.push("shared_tasks.id = ?");
+        values.push(input.taskId);
+      }
+      if (input.statuses !== undefined) {
+        clauses.push("status IN (SELECT value FROM json_each(?))");
+        values.push(JSON.stringify(input.statuses));
+      }
+      if (input.focused !== undefined) {
+        clauses.push("focused = ?");
+        values.push(Number(input.focused));
+      }
+      if (input.threads !== undefined) {
+        clauses.push(`EXISTS (
+          SELECT 1 FROM json_each(?) AS wanted
+          WHERE EXISTS (
+            SELECT 1 FROM json_each(shared_tasks.data, '$.threads') AS linked
+            WHERE json_extract(linked.value, '$.threadId') = json_extract(wanted.value, '$.threadId')
+              AND coalesce(json_extract(linked.value, '$.environmentId'), json_extract(wanted.value, '$.environmentId'), '') = coalesce(json_extract(wanted.value, '$.environmentId'), '')
+          ) OR EXISTS (
+            SELECT 1 FROM json_each(shared_tasks.data, '$.steps') AS step
+            WHERE json_extract(step.value, '$.thread.threadId') = json_extract(wanted.value, '$.threadId')
+              AND coalesce(json_extract(step.value, '$.thread.environmentId'), json_extract(wanted.value, '$.environmentId'), '') = coalesce(json_extract(wanted.value, '$.environmentId'), '')
+          )
+        )`);
+        values.push(JSON.stringify(input.threads));
+      }
       if (input.projectId) {
         clauses.push("project_id = ?");
         values.push(input.projectId);
@@ -313,19 +388,33 @@ export class SharedTaskStore {
         );
         values.push(input.query.trim(), input.query.trim());
       }
+      const tagWhere = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+      const tags = this.#db
+        .prepare(
+          `SELECT DISTINCT tag.value AS tag FROM shared_tasks, json_each(shared_tasks.data, '$.tags') AS tag ${tagWhere} ORDER BY tag.value`,
+        )
+        .all(...values)
+        .map((row) => String(row.tag));
+      if (input.tag) {
+        clauses.push(
+          "EXISTS (SELECT 1 FROM json_each(shared_tasks.data, '$.tags') WHERE value = ?)",
+        );
+        values.push(input.tag);
+      }
       const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
       const total = Number(
         this.#db.prepare(`SELECT count(*) AS n FROM shared_tasks ${where}`).get(...values)?.n ?? 0,
       );
       const rows = this.#db
         .prepare(
-          `SELECT data FROM shared_tasks ${where} ORDER BY focused DESC, updated_at DESC, id LIMIT ?`,
+          `SELECT data FROM shared_tasks ${where} ORDER BY focused DESC, updated_at DESC, id LIMIT ? OFFSET ?`,
         )
-        .all(...values, Math.min(input.limit ?? 100, 200));
+        .all(...values, Math.min(input.limit ?? 100, 200), input.offset ?? 0);
       const revision = this.revision();
       return {
         revision,
         total,
+        tags,
         tasks: rows.map((row) => summary(JSON.parse(String(row.data)) as SharedTask)),
       };
     }, false);

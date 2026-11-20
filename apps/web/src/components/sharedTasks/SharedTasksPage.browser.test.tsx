@@ -3,6 +3,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   EnvironmentId,
+  DEFAULT_SERVER_SETTINGS,
   ProjectId,
   ThreadId,
   SharedTaskError,
@@ -12,6 +13,7 @@ import {
   type SharedTaskSnapshot,
   type SharedTaskGetResult,
   type SharedTaskUpdateInput,
+  type SharedTaskListInput,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
@@ -41,6 +43,7 @@ const state = vi.hoisted(() => ({
   progress: vi.fn(),
   update: vi.fn(),
   start: vi.fn(),
+  subscribe: vi.fn(),
   reuseCurrentDraft: false,
 }));
 
@@ -108,9 +111,30 @@ function setup(events: SharedTaskGetResult["events"] = []) {
   state.snapshot = Atom.make((get) => AsyncResult.success(snapshot(get(state.model)))).pipe(
     Atom.keepAlive,
   );
-  state.detail = Atom.make((get) =>
-    AsyncResult.success({ task: get(state.model), events, hasMoreHistory: false }),
+  state.detail = Atom.make(() =>
+    AsyncResult.success({ task: state.task, events, hasMoreHistory: false }),
   ).pipe(Atom.keepAlive);
+  const subscriptions = Atom.family((key: string) =>
+    Atom.make((get) => {
+      const input = JSON.parse(key) as SharedTaskListInput;
+      const task = get(state.model);
+      const result = snapshot(task);
+      const matches =
+        (!input.taskId || input.taskId === task.id) &&
+        (!input.query || task.title.includes(input.query) || task.goal.includes(input.query)) &&
+        (!input.statuses || input.statuses.includes(task.status));
+      return AsyncResult.success({
+        ...result,
+        tasks: matches ? result.tasks : [],
+        total: matches ? 1 : 0,
+      });
+    }).pipe(Atom.keepAlive),
+  );
+  state.subscribe
+    .mockReset()
+    .mockImplementation(({ input }: { input: SharedTaskListInput }) =>
+      subscriptions(JSON.stringify(input)),
+    );
   state.start.mockReset();
   state.reuseCurrentDraft = false;
   state.update
@@ -150,7 +174,7 @@ function setup(events: SharedTaskGetResult["events"] = []) {
 
 vi.mock("../../state/sharedTasks", () => ({
   sharedTaskEnvironment: {
-    subscribe: () => state.snapshot,
+    subscribe: (request: { input: SharedTaskListInput }) => state.subscribe(request),
     get: () => state.detail,
     create: { label: "test:create", run: vi.fn(), permissionAtom: () => state.permission },
     update: { label: "test:update", run: state.update, permissionAtom: () => state.permission },
@@ -165,7 +189,10 @@ vi.mock("../../state/environments", () => ({
   useEnvironments: () => ({ environments: [{ environmentId, label: "Laptop" }] }),
   usePrimaryEnvironmentId: () => environmentId,
 }));
-vi.mock("../../hooks/useSettings", () => ({ useClientSettings: () => 0 }));
+vi.mock("../../hooks/useSettings", () => ({
+  useClientSettings: () => 0,
+  useEnvironmentSettings: () => DEFAULT_SERVER_SETTINGS,
+}));
 vi.mock("../../state/entities", () => ({
   useProjects: () => [
     { id: "project", environmentId, title: "App", workspaceRoot: "/home/user/app" },
@@ -254,9 +281,11 @@ function PanelHost() {
 it("opens the task module from the App's right controls and keeps the conversation when task details close", async () => {
   using _fixture = setup();
   await using screen = await render(<PanelHost />, { router: "/laptop/current-thread" });
-  const toggle = page.getByRole("button", { name: "切换任务板", exact: true });
+  const toggle = page.elementLocator(
+    screen.container.querySelector('[data-panel-module-toggle="shared-tasks"]')!,
+  );
   await toggle.click();
-  await expect.element(page.getByRole("region", { name: "共享任务板" })).toBeVisible();
+  await expect.element(page.getByRole("region", { name: "Shared task board" })).toBeVisible();
   await page.getByRole("button", { name: "详情与跟进", exact: true }).click();
   await expect.element(page.getByRole("dialog")).toBeVisible();
   expect(screen.router?.state.location.pathname).toBe("/laptop/current-thread");
@@ -268,9 +297,11 @@ it("opens the task module from the App's right controls and keeps the conversati
   await page.getByRole("button", { name: "在新会话跟进", exact: true }).click();
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
   expect(screen.router?.state.location.pathname).toBe("/laptop/current-thread");
-  await expect.element(page.getByRole("region", { name: "共享任务板" })).toBeVisible();
+  await expect.element(page.getByRole("region", { name: "Shared task board" })).toBeVisible();
   await toggle.click();
-  await expect.element(page.getByRole("region", { name: "共享任务板" })).not.toBeInTheDocument();
+  await expect
+    .element(page.getByRole("region", { name: "Shared task board" }))
+    .not.toBeInTheDocument();
 });
 
 it("keeps an in-progress note during another session's update and retries only edited fields", async () => {
@@ -313,78 +344,158 @@ it("opens a task's prepared conversation without returning to the tasks page", a
     expect.objectContaining({ prompt: expect.stringContaining("t3_task_get") }),
   );
   expect(state.start.mock.calls[0]?.[1].prompt).toContain("work-save");
+  expect(state.start.mock.calls[0]?.[1].sharedTask).toEqual({ taskId: "work-save", environmentId });
+  expect(state.update).not.toHaveBeenCalled();
 });
 
-it("saves an assignee and conversation after a conflict without reverting another agent's completed step", async () => {
-  using _fixture = setup([
-    {
-      id: 1,
-      taskId: "work-save",
-      version: 1,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      note: "原会话检查了保存行为",
-      source: { actor: "ai", threadId: "verification-thread", environmentId },
-      changedFields: [],
-    },
-  ]);
+it("prepares a phase draft without marking it started before the user sends", async () => {
+  using _fixture = setup();
   publish({
     ...state.task,
+    status: "todo",
     steps: [
       {
-        id: "implement",
-        title: "实现保存",
-        status: "doing",
-        assignee: "实现智能体",
-        thread: { environmentId, threadId: "implementation-thread" },
+        id: "verify",
+        title: "验证保存行为",
+        status: "todo",
+        model: { instanceId: "provider", model: "phase-model" },
       },
-      { id: "verify", title: "验证保存行为", status: "todo", assignee: "验证智能体" },
     ],
   });
   await using screen = await render(<Host />, { router: "/tasks?taskId=work-save" });
-  const step = page.getByRole("group", { name: "步骤：验证保存行为" });
-  await step.getByRole("button", { name: "设置分工", exact: true }).click();
-  const owner = page.getByRole("textbox", { name: "负责人", exact: true });
-  await userEvent.fill(owner, "测试智能体");
-  await page.getByRole("combobox", { name: "关联智能体会话", exact: true }).click();
-  await page.getByRole("option", { name: "验证会话", exact: true }).click();
+  await page.getByRole("button", { name: "准备阶段会话", exact: true }).click();
+  await vi.waitFor(() => expect(screen.router?.state.location.pathname).toBe("/draft/task-draft"));
+  expect(state.start.mock.calls[0]?.[1]).toMatchObject({
+    sharedTask: { taskId: "work-save", environmentId, stepId: "verify" },
+    modelSelection: { instanceId: "provider", model: "phase-model" },
+  });
+  expect(state.task.status).toBe("todo");
+  expect(state.task.steps[0]?.thread).toBeUndefined();
+  expect(state.update).not.toHaveBeenCalled();
+});
+
+it("refreshes the selected detail after a peer rename removes it from the search", async () => {
+  using _fixture = setup();
+  await using screen = await render(<Host />, { router: "/tasks" });
+  await userEvent.fill(screen.getByRole("textbox", { name: "Search", exact: true }), "持续跟进");
+  await screen.getByRole("button", { name: "Search", exact: true }).click();
+  await screen.getByRole("button", { name: "详情与跟进", exact: true }).click();
   await act(() =>
+    publish({ ...state.task, title: "新的任务标题", version: 2, nextStep: "其他会话更新的下一步" }),
+  );
+  await expect
+    .element(page.getByRole("dialog", { name: "新的任务标题", exact: true }))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("dialog").getByText("其他会话更新的下一步", { exact: true }))
+    .toBeVisible();
+});
+
+it("keeps progress input when switching history and fits wide and narrow viewports", async () => {
+  using _fixture = setup();
+  const originalViewport = { width: window.innerWidth, height: window.innerHeight };
+  await page.viewport(1440, 900);
+  try {
+    await using screen = await render(<Host />, { router: "/tasks?taskId=work-save" });
+    const note = screen.getByRole("textbox", { name: "本次进展" });
+    await userEvent.fill(note, "保留这条未提交的记录");
+    await page.getByRole("button", { name: "进度历史", exact: true }).click();
+    await expect.element(page.getByRole("region", { name: "任务进度历史" })).toBeVisible();
+    await page.getByRole("button", { name: "任务与操作", exact: true }).click();
+    await expect.element(note).toHaveValue("保留这条未提交的记录");
+    const dialog = page.getByRole("dialog").element();
+    expect(dialog.getBoundingClientRect().width).toBeGreaterThan(900);
+    expect(dialog.scrollWidth).toBeLessThanOrEqual(dialog.clientWidth);
+    await page.viewport(390, 844);
+    await vi.waitFor(() => {
+      expect(dialog.getBoundingClientRect().width).toBeLessThanOrEqual(390);
+      expect(dialog.scrollWidth).toBeLessThanOrEqual(dialog.clientWidth);
+    });
+  } finally {
+    await page.viewport(originalViewport.width, originalViewport.height);
+  }
+});
+
+it.each(["implement", "verify"])(
+  "preserves assignment edits and peer completion after a conflict (%s)",
+  async (completedStepId) => {
+    using _fixture = setup([
+      {
+        id: 1,
+        taskId: "work-save",
+        version: 1,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        note: "原会话检查了保存行为",
+        source: { actor: "ai", threadId: "verification-thread", environmentId },
+        changedFields: [],
+      },
+    ]);
     publish({
       ...state.task,
-      version: 2,
-      steps: state.task.steps.map((value) =>
-        value.id === "implement" ? { ...value, status: "done" } : value,
-      ),
-    }),
-  );
-  await page.getByRole("button", { name: "保存分工", exact: true }).click();
-  await expect.element(page.getByRole("alert")).toBeVisible();
-  await expect.element(owner).toHaveValue("测试智能体");
-  await page.getByRole("button", { name: "按最新版本保存分工", exact: true }).click();
-  await vi.waitFor(() => {
-    expect(state.task.version).toBe(3);
-    expect(state.task.steps[0]).toMatchObject({
-      status: "done",
-      assignee: "实现智能体",
-      thread: { threadId: "implementation-thread" },
+      steps: [
+        {
+          id: "implement",
+          title: "实现保存",
+          status: "doing",
+          assignee: "实现智能体",
+          thread: { environmentId, threadId: "implementation-thread" },
+        },
+        { id: "verify", title: "验证保存行为", status: "todo", assignee: "验证智能体" },
+      ],
     });
-    expect(state.task.steps[1]).toMatchObject({
-      status: "todo",
-      assignee: "测试智能体",
-      thread: { threadId: "verification-thread", environmentId },
+    await using screen = await render(<Host />, { router: "/tasks?taskId=work-save" });
+    const step = page.getByRole("group", { name: "步骤：验证保存行为" });
+    await step.getByRole("button", { name: "设置分工", exact: true }).click();
+    const owner = page.getByRole("combobox", { name: "负责人", exact: true });
+    await userEvent.fill(owner, "测试智能体");
+    await page.getByRole("combobox", { name: "关联智能体会话", exact: true }).click();
+    await page.getByRole("option", { name: "验证会话", exact: true }).click();
+    await act(() =>
+      publish({
+        ...state.task,
+        version: 2,
+        steps: state.task.steps.map((value) =>
+          value.id === completedStepId ? { ...value, status: "done" } : value,
+        ),
+      }),
+    );
+    await page.getByRole("button", { name: "保存分工", exact: true }).click();
+    await expect.element(page.getByRole("alert")).toBeVisible();
+    await expect.element(owner).toHaveValue("测试智能体");
+    await page.getByRole("button", { name: "按最新版本保存分工", exact: true }).click();
+    await vi.waitFor(() => {
+      expect(state.task.version).toBe(3);
+      expect(state.task.steps[0]).toMatchObject({
+        status: completedStepId === "implement" ? "done" : "doing",
+        assignee: "实现智能体",
+        thread: { threadId: "implementation-thread" },
+      });
+      expect(state.task.steps[1]).toMatchObject({
+        status: completedStepId === "verify" ? "done" : "todo",
+        assignee: "测试智能体",
+        thread: { threadId: "verification-thread", environmentId },
+      });
     });
-  });
-  await expect
-    .element(
-      page
-        .getByRole("region", { name: "协作进度" })
-        .getByText("已完成 1/1 · 进行中 0", { exact: true }),
-    )
-    .toBeVisible();
-  await expect
-    .element(page.getByRole("region", { name: "任务进度历史" }).getByText(/· AI$/, { exact: true }))
-    .toBeVisible();
-  await step.getByRole("button", { name: "打开负责人会话", exact: true }).click();
-  await vi.waitFor(() =>
-    expect(screen.router?.state.location.pathname).toBe("/laptop/verification-thread"),
-  );
-});
+    await expect
+      .element(
+        page
+          .getByRole("region", { name: "协作进度" })
+          .getByText("已完成 1/1 · 进行中 0", { exact: true }),
+      )
+      .toBeVisible();
+    await page.getByRole("button", { name: "进度历史", exact: true }).click();
+    await expect
+      .element(
+        page.getByRole("region", { name: "任务进度历史" }).getByText(/· AI$/, { exact: true }),
+      )
+      .toBeVisible();
+    await page.getByRole("button", { name: "任务与操作", exact: true }).click();
+    if (completedStepId === "verify") {
+      await page.getByRole("button", { name: "显示已完成步骤（1）", exact: true }).click();
+    }
+    await step.getByRole("button", { name: "打开负责人会话", exact: true }).click();
+    await vi.waitFor(() =>
+      expect(screen.router?.state.location.pathname).toBe("/laptop/verification-thread"),
+    );
+  },
+);

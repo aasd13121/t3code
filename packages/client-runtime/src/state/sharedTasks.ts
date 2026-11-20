@@ -19,6 +19,18 @@ export function createSharedTaskEnvironmentAtoms<R, E>(
   });
   return {
     get,
+    linkThread: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:shared-tasks:link-thread",
+      tag: WS_METHODS.sharedTasksLinkThread,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => `${environmentId}:${input.taskId}`,
+      },
+      onSuccess: ({ environmentId, input }, registry) =>
+        Effect.sync(() =>
+          registry.refresh(get({ environmentId, input: { taskId: input.taskId } })),
+        ),
+    }),
     subscribe: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:shared-tasks:subscribe",
       tag: WS_METHODS.sharedTasksSubscribe,

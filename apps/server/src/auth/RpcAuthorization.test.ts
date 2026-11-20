@@ -60,6 +60,7 @@ describe("RPC authorization scopes", () => {
       WS_METHODS.sharedTasksCreate,
       WS_METHODS.sharedTasksUpdate,
       WS_METHODS.sharedTasksProgress,
+      WS_METHODS.sharedTasksLinkThread,
     ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
     }

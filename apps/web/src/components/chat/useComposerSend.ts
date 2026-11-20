@@ -118,6 +118,7 @@ import {
   startAttachmentUpload,
 } from "../../lib/attachmentUploadQueue";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
+import { linkSentTaskThread } from "../../modules/sharedTasks/linkSentTaskThread";
 import { fileAttachmentCapabilityBlockReason } from "./composerAttachmentFiles";
 import { useLinkedEnvironments } from "../../state/peerLinks";
 import { readEnvironmentScope } from "../../state/session";
@@ -551,6 +552,9 @@ export function useComposerSend(input: ComposerSendInput) {
       return;
     }
     const multipleModelSelections = sendCtx.multipleModelSelections;
+    const sharedTask = isLocalDraftThread
+      ? useComposerDraftStore.getState().getDraftThread(composerDraftTarget)?.sharedTask
+      : undefined;
     const approvalFeedbackTarget = pendingApprovalsRef.current.find(
       (approval) =>
         approval.supportsFeedback && approval.requestId === sendCtx.shownPendingApprovalIds[0],
@@ -566,12 +570,18 @@ export function useComposerSend(input: ComposerSendInput) {
             isLocalDraftThread,
             isGitRepo,
             branch: activeThreadBranch,
+            hasTaskStep: sharedTask?.stepId !== undefined,
           });
     if (multipleModelBlock === "server-outdated") {
       setThreadError(
         activeThread.id,
         m(msg("Update this server before starting multiple models.")),
       );
+      return;
+    }
+    if (multipleModelBlock === "task-step-needs-one-model") {
+      // oxlint-disable-next-line t3code/no-untranslated-copy -- task board copy migration is tracked separately
+      setThreadError(activeThread.id, "阶段会话只能指定一个负责模型，请取消多选后发送。");
       return;
     }
     if (multipleModelBlock === "needs-new-git-thread") {
@@ -1192,6 +1202,7 @@ export function useComposerSend(input: ComposerSendInput) {
         selections: multipleModelSelections,
         targets: multipleTargets,
         sendSnapshot,
+        sharedTask,
         createdAt: messageCreatedAt,
         attachmentsPromise: turnAttachmentsPromise,
         usesAttachmentUploads: turnUsesAttachmentUploads,
@@ -1421,6 +1432,8 @@ export function useComposerSend(input: ComposerSendInput) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
+        if (sharedTask)
+          void linkSentTaskThread(sharedTask, scopeThreadRef(environmentId, threadIdForSend));
         if (checkoutPullRequestUrl) {
           linkCheckoutPullRequest(
             scopeThreadRef(environmentId, threadIdForSend),
