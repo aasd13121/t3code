@@ -1,14 +1,14 @@
 name: Follow upstream nightly
 
 # Periodically check pingdotgg/t3code for a new nightly tag. If one exists and
-# the fork has not yet published a release for it, rebase task-board onto the
-# new tag and dispatch release-fork.yml to build + publish. On rebase conflict,
+# the fork has not yet published a release for it, merge the tag into task-board
+# and dispatch release-fork.yml to build + publish. On merge conflict,
 # abort and open an issue for manual resolution.
 #
 # SCHEDULED runs only fire from the repository's DEFAULT branch. If the default
 # is `main`, this workflow must live on `main` (Option A); if you switch the
 # default to `task-board`, it fires from there (Option B). Either way it checks
-# out task-board for the actual rebase and dispatches release-fork.yml on
+# out task-board for the merge and dispatches release-fork.yml on
 # task-board. Manual workflow_dispatch works from any branch that has this file.
 
 on:
@@ -21,9 +21,9 @@ on:
         required: false
 
 permissions:
-  contents: write # push rebased task-board
+  contents: write # push merged task-board
   actions: write # dispatch release-fork.yml
-  issues: write # open an issue on rebase conflict
+  issues: write # open an issue on merge conflict
 
 concurrency:
   group: follow-upstream
@@ -101,28 +101,28 @@ jobs:
             echo "New upstream nightly to process: v${VERSION}-tb"
           fi
 
-      - name: Rebase task-board onto upstream nightly
-        if: steps.dedup.outputs.skip != 'true'
+      - name: Merge upstream nightly into task-board
+        if: steps.dedup.outputs.skip == 'false'
         shell: bash
         env:
           UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
         run: |
           set -euo pipefail
-          if ! git rebase "$UPSTREAM_TAG" task-board; then
-            git rebase --abort 2>/dev/null || true
-            echo "::error::Rebase of task-board onto $UPSTREAM_TAG conflicted. Manual resolution required."
-            echo "rebase_conflict=true" >> "$GITHUB_ENV"
+          if ! git merge --no-edit "$UPSTREAM_TAG"; then
+            git merge --abort 2>/dev/null || true
+            echo "::error::Merge of $UPSTREAM_TAG into task-board conflicted. Manual resolution required."
+            echo "merge_conflict=true" >> "$GITHUB_ENV"
             exit 1
           fi
-          echo "task-board rebased onto $UPSTREAM_TAG."
+          echo "task-board includes $UPSTREAM_TAG."
 
-      - name: Push rebased task-board
-        if: steps.dedup.outputs.skip != 'true' && env.rebase_conflict != 'true'
+      - name: Push merged task-board
+        if: steps.dedup.outputs.skip == 'false' && env.merge_conflict != 'true'
         shell: bash
-        run: git push origin task-board --force-with-lease
+        run: git push origin task-board
 
       - name: Dispatch release-fork workflow
-        if: steps.dedup.outputs.skip != 'true' && env.rebase_conflict != 'true'
+        if: steps.dedup.outputs.skip == 'false' && env.merge_conflict != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -136,8 +136,8 @@ jobs:
           gh workflow run release-fork.yml --ref task-board -f version="$VERSION" --repo "$GITHUB_REPOSITORY"
           echo "Dispatched release-fork.yml on task-board for v${VERSION}-tb."
 
-      - name: Open issue on rebase conflict
-        if: failure() && env.rebase_conflict == 'true'
+      - name: Open issue on merge conflict
+        if: failure() && env.merge_conflict == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -145,16 +145,18 @@ jobs:
           VERSION: ${{ steps.upstream.outputs.version }}
         run: |
           set -euo pipefail
-          title="Auto-follow upstream: rebase conflict for $UPSTREAM_TAG"
+          title="Auto-follow upstream: merge conflict for $UPSTREAM_TAG"
           existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title $UPSTREAM_TAG" --json number --jq '.[0].number' 2>/dev/null || true)"
-          body="Automatic rebase of \`task-board\` onto upstream nightly \`$UPSTREAM_TAG\` (version \`$VERSION\`) conflicted and could not be completed automatically.
+          body="Automatic merge of upstream nightly \`$UPSTREAM_TAG\` into \`task-board\` (version \`$VERSION\`) conflicted and could not be completed automatically.
 
           Resolve the conflict locally:
           \`\`\`
           git fetch upstream refs/tags/$UPSTREAM_TAG:refs/tags/$UPSTREAM_TAG
-          git rebase $UPSTREAM_TAG task-board
+          git switch task-board
+          git merge $UPSTREAM_TAG
           # resolve conflicts, then:
-          git push origin task-board --force-with-lease
+          git commit
+          git push origin task-board
           \`\`\`
           Then re-run this workflow or dispatch \`release-fork.yml\` with version \`$VERSION\` (release tag will be \`v${VERSION}-tb\`).
 
