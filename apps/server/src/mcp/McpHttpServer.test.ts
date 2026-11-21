@@ -4,6 +4,7 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import { expect, it } from "@effect/vitest";
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   DeviceId,
@@ -66,6 +67,12 @@ import { PreviewToolkit } from "./toolkits/preview/tools.ts";
 import { PreviewControlsToolkit } from "./toolkits/previewControls/tools.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import { ThreadToolkit } from "./toolkits/thread/tools.ts";
+
+// Windows can allocate ephemeral ports that fetch forbids.
+const httpTestLayer = HttpServer.layerTestClient.pipe(
+  Layer.provide(NodeHttpClient.layerNodeHttp),
+  Layer.provideMerge(NodeHttpServer.layerTest),
+);
 
 const environmentId = EnvironmentId.make("environment-mcp-test");
 const threadId = ThreadId.make("thread-mcp-test");
@@ -1100,7 +1107,7 @@ it.effect("terminates HTTP MCP sessions with DELETE", () =>
       });
       expect(reusedSessionResponse.status).toBe(404);
     }),
-  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  ).pipe(Effect.provide(httpTestLayer)),
 );
 
 it.effect("answers 2026-07-28 discovery and keeps 2025-06-18 as the initialize fallback", () =>
@@ -1249,7 +1256,7 @@ it.effect("answers 2026-07-28 discovery and keeps 2025-06-18 as the initialize f
       };
       expect(initialized.result.protocolVersion).toBe("2025-06-18");
     }),
-  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  ).pipe(Effect.provide(httpTestLayer)),
 );
 
 it.effect("admits provider and OAuth client credentials and points only clients at OAuth", () =>
@@ -1432,7 +1439,7 @@ it.effect("admits provider and OAuth client credentials and points only clients 
       expect((yield* foreignOrigin("POST", undefined)).status).toBe(403);
       expect((yield* foreignOrigin("OPTIONS", undefined)).status).toBe(403);
     }),
-  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  ).pipe(Effect.provide(httpTestLayer)),
 );
 
 it.effect("accepts case-insensitive MCP bearer schemes and diagnoses rejected credentials", () => {
@@ -1528,7 +1535,7 @@ it.effect("accepts case-insensitive MCP bearer schemes and diagnoses rejected cr
   ).pipe(
     Effect.provide(
       layerAuth.pipe(
-        Layer.provideMerge(NodeHttpServer.layerTest),
+        Layer.provideMerge(httpTestLayer),
         Layer.provideMerge(Logger.layer([logger], { mergeWithExisting: false })),
       ),
     ),
@@ -1633,7 +1640,7 @@ it.effect("gives outside clients an upload URL on the origin their request reach
       const proxied = yield* prepareUpload({ "x-forwarded-proto": "https" });
       expect(new URL(proxied.uploadUrl).protocol).toBe("https:");
     }),
-  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  ).pipe(Effect.provide(httpTestLayer)),
 );
 
 it.effect("hides tools for links and refuses another environment while the beta is off", () =>
@@ -1755,7 +1762,7 @@ it.effect("hides tools for links and refuses another environment while the beta 
         content: [{ text: expect.stringContaining("cannot reach linked environments") }],
       });
     }),
-  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  ).pipe(Effect.provide(httpTestLayer)),
 );
 
 it.effect(
@@ -1877,7 +1884,7 @@ it.effect(
           noForgeTools.filter((name) => name.startsWith("pull_request_") || name.startsWith("ci_")),
         ).toEqual([]);
       }),
-    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+    ).pipe(Effect.provide(httpTestLayer)),
 );
 
 it.effect(
@@ -2022,7 +2029,7 @@ it.effect(
         expect(yield* start("auto/default/extra")).toBe(400);
         expect(yield* start("root/default")).toBe(400);
       }),
-    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+    ).pipe(Effect.provide(httpTestLayer)),
 );
 
 it.effect("lists optional tools to a deferring client only after tool_search loads them", () =>
@@ -2148,5 +2155,5 @@ it.effect("lists optional tools to a deferring client only after tool_search loa
       expect(yield* deferring.listed).toEqual(["delegate_task", "preview_open", "tool_search"]);
       expect(yield* other.listed).toEqual(["delegate_task", "preview_open", "schedule_task"]);
     }),
-  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  ).pipe(Effect.provide(httpTestLayer)),
 );

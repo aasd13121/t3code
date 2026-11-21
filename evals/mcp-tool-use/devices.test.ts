@@ -2,6 +2,7 @@
 import * as NodeFS from "node:fs";
 import * as NodeZlib from "node:zlib";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodePath from "@effect/platform-node/NodePath";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Layer from "effect/Layer";
 import { assert, it } from "@effect/vitest";
@@ -78,7 +79,10 @@ const json = (text: string) => JSON.parse(text);
 it.effect("answers device calls with T3's handlers over the case's world", () =>
   Effect.gen(function* () {
     const { devices, deviceHosts } = deviceCase({}).setup.world ?? {};
-    const tools = yield* makeDeviceTools({ devices: devices ?? [], deviceHosts }, base.environment);
+    const tools = yield* makeDeviceTools(
+      { devices: devices ?? [], deviceHosts },
+      base.environment,
+    ).pipe(Effect.provide(NodePath.layerWin32));
     const listed = json((yield* tools.call("device_list", {})).text);
     assert.deepEqual(listed.devices, world.devices);
     assert.deepEqual(
