@@ -9,6 +9,7 @@ import { useGT } from "gt-react";
 import { memo, type ReactNode, useLayoutEffect, useRef } from "react";
 
 import { cn } from "~/lib/utils";
+import { observeResize } from "~/lib/observeResize";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { PanelModuleControls } from "../modules/PanelModuleControls";
 
@@ -223,6 +224,28 @@ export function WorkspaceTitlebarControls(props: {
   const { rightPanelOpen, maximized } = props;
   const controlsRef = useRef<HTMLDivElement | null>(null);
   const previous = useRef({ rightPanelOpen, maximized });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reserves the fixed strip's actual width in the chat and panel headers as controls or zoom change.
+  useLayoutEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    const root = controls.ownerDocument.documentElement;
+    const property = "--workspace-titlebar-controls-width";
+    const previousWidth = root.style.getPropertyValue(property);
+    const measure = () => {
+      const margin = Number.parseFloat(getComputedStyle(controls).marginRight) || 0;
+      const width = `${Math.ceil(controls.offsetWidth + margin)}px`;
+      if (root.style.getPropertyValue(property) !== width) {
+        root.style.setProperty(property, width);
+      }
+    };
+    measure();
+    const stopObserving = observeResize(controls, measure);
+    return () => {
+      stopObserving();
+      if (previousWidth) root.style.setProperty(property, previousWidth);
+      else root.style.removeProperty(property);
+    };
+  }, []);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- starts the toggle's slide before the commit that swapped it in paints; the animation is cancelled on change or unmount.
   useLayoutEffect(() => {
     const { rightPanelOpen: wasOpen, maximized: wasMaximized } = previous.current;

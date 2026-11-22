@@ -18,17 +18,16 @@ export function PanelModuleControls({ threadRef }: { threadRef: ScopedThreadRef 
           size="sm"
           variant="ghost"
           className="shrink-0 [-webkit-app-region:no-drag]"
-          aria-label={gt("Toggle {name}", { name: module.title })}
+          aria-label={gt("Toggle {name}", { name: gt(module.title) })}
           data-panel-module-toggle={module.id}
           pressed={panel.isOpen && panel.activeSurfaceId === `module:${module.id}`}
           onPressedChange={() => togglePanelModule(threadRef, module.id)}
         >
           <module.icon className="size-4" aria-hidden="true" />
-          {gt(module.title)}
         </Toggle>
       </TooltipTrigger>
       <TooltipPopup side="bottom">
-        {gt("Open or close {name}", { name: module.title })}
+        {gt("Open or close {name}", { name: gt(module.title) })}
       </TooltipPopup>
     </Tooltip>
   ));
