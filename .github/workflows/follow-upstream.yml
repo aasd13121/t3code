@@ -188,6 +188,9 @@ jobs:
 
           git add -A
           git commit --no-edit --no-verify
+          # Cleared so the push and release dispatch below run as they do after a
+          # clean merge; the issue step keys off the same flag.
+          echo "merge_conflict=false" >> "$GITHUB_ENV"
           echo "task-board includes $UPSTREAM_TAG (auto-resolved)."
 
       - name: Push merged task-board
