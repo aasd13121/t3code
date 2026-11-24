@@ -98,6 +98,32 @@ jobs:
         shell: bash
         run: node scripts/update-release-package-versions.ts "$VERSION"
 
+      # T3 Connect (relay + Clerk) identifiers are baked into the JS bundle at
+      # build time by apps/server/vite.config.ts and apps/web/vite.config.ts.
+      # Upstream's release.yml reads them from production repository variables;
+      # the fork defines none, which left them empty and compiled T3 Connect
+      # out (hasCloudPublicConfig=false hides the settings row and `t3 connect`).
+      # .env.example ships the same public identifiers official builds use and
+      # is tracked, so read them from there: one source of truth, no secrets.
+      - name: Load T3 Connect public config
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in \
+            T3CODE_CLERK_PUBLISHABLE_KEY \
+            T3CODE_CLERK_JWT_TEMPLATE \
+            T3CODE_CLERK_CLI_OAUTH_CLIENT_ID \
+            T3CODE_RELAY_URL
+          do
+            value="$(sed -n "s|^${key}=||p" .env.example | head -n1)"
+            if [[ -z "$value" ]]; then
+              echo "::error::.env.example is missing ${key}, so T3 Connect would be built out."
+              exit 1
+            fi
+            echo "${key}=${value}" >> "$GITHUB_ENV"
+            echo "T3 Connect config: ${key} is set"
+          done
+
       # Produces apps/server/dist (server bundle + web client). Mirrors the local
       # build, which runs build:desktop through build-desktop-artifact.ts.
       - name: Build JS bundle
@@ -206,6 +232,28 @@ jobs:
         with:
           name: cli-linux-x64
           path: wsl-runtime
+
+      # Same source as the Linux job: the tracked public identifiers in
+      # .env.example, which build-desktop-artifact.ts passes through to the
+      # bundle build it runs (it extends the environment). See that job for why.
+      - name: Load T3 Connect public config
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in \
+            T3CODE_CLERK_PUBLISHABLE_KEY \
+            T3CODE_CLERK_JWT_TEMPLATE \
+            T3CODE_CLERK_CLI_OAUTH_CLIENT_ID \
+            T3CODE_RELAY_URL
+          do
+            value="$(sed -n "s|^${key}=||p" .env.example | head -n1)"
+            if [[ -z "$value" ]]; then
+              echo "::error::.env.example is missing ${key}, so T3 Connect would be built out."
+              exit 1
+            fi
+            echo "${key}=${value}" >> "$GITHUB_ENV"
+            echo "T3 Connect config: ${key} is set"
+          done
 
       # No --skip-build: build-desktop-artifact.ts builds the JS bundle itself
       # (vp run build:desktop with version alignment + restore), reuses the
