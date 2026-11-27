@@ -1008,7 +1008,7 @@ export const TextGeneratorConfig = Schema.Struct({
 });
 export type TextGeneratorConfig = typeof TextGeneratorConfig.Type;
 
-/** An image-generation API endpoint saved for future image-generation features. */
+/** An OpenAI-compatible image-generation API endpoint available to agent tools. */
 export const ImageGeneratorConfig = Schema.Struct({
   label: Schema.optional(TrimmedNonEmptyString),
   baseUrl: TextGeneratorBaseUrl,

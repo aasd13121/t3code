@@ -86,6 +86,9 @@ import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import * as OrchestratorHandlers from "./toolkits/orchestrator/handlers.ts";
 import * as SharedTaskHandlers from "./toolkits/sharedTasks/handlers.ts";
 import { SharedTaskToolkit } from "./toolkits/sharedTasks/tools.ts";
+import * as ImageGenerationHandlers from "./toolkits/imageGeneration/handlers.ts";
+import { ImageGenerationToolkit } from "./toolkits/imageGeneration/tools.ts";
+import * as ImageGenerators from "../imageGeneration/ImageGenerators.ts";
 import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
 import * as PreviewHandlers from "./toolkits/preview/handlers.ts";
 import {
@@ -1453,6 +1456,10 @@ export const layerOrchestratorToolkit = toolkitRegistration(
 ).pipe(Layer.provide(OrchestratorMcpService.layer), Layer.provide(ThreadMetadataMcpService.layer));
 
 const layerSharedTaskToolkit = toolkitRegistration(SharedTaskToolkit, SharedTaskHandlers.layer);
+const layerImageGenerationToolkit = toolkitRegistration(
+  ImageGenerationToolkit,
+  ImageGenerationHandlers.layer,
+).pipe(Layer.provide(ImageGenerators.layer));
 
 export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandlers.layer);
 const layerWorkflowToolkit = toolkitRegistration(WorkflowToolkit, WorkflowHandlers.layer);
@@ -1550,6 +1557,7 @@ export const layerMcpTransport = <RA, RE, RR>(registrations: Layer.Layer<RA, RE,
 /** Every tool the T3 MCP server advertises. AgentContextBudget.test.ts measures this set. */
 export const layerTools = Layer.mergeAll(
   layerSharedTaskToolkit,
+  layerImageGenerationToolkit,
   layerPreviewToolkit,
   layerOrchestratorToolkit,
   layerThreadToolkit,
