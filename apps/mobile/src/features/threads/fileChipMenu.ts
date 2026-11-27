@@ -1,5 +1,6 @@
 import { formatFilePathForClipboard } from "@t3tools/client-runtime/media-actions";
 import { fileBasename } from "@t3tools/shared/path";
+import { isUnrealAssetPath } from "@t3tools/shared/fileLinks";
 import type { ThreadId } from "@t3tools/contracts";
 import { resolveMarkdownLinkPresentation } from "../../lib/markdownLinks";
 import type { MarkdownFileContextMenu } from "../../native/SelectableMarkdownText.types";
@@ -81,7 +82,12 @@ export function fileChipMenu(
       ...(target.relativePath
         ? [{ id: "copy-relative-path", title: resolve(msg("Copy relative path")) }]
         : []),
-      { id: "open-file", title: resolve(msg("Open in file viewer")) },
+      {
+        id: "open-file",
+        title: isUnrealAssetPath(target.fullPath ?? target.relativePath ?? "")
+          ? resolve(msg("Open {app}", { app: "Unreal Editor" }))
+          : resolve(msg("Open in file viewer")),
+      },
       ...(fileChipMetadata(target)
         ? [
             {

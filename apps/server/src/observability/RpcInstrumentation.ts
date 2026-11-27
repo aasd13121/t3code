@@ -201,6 +201,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.projectsCreateNew]: "orchestration",
   [WS_METHODS.projectsCreateFromThread]: "orchestration",
   [WS_METHODS.shellOpenInEditor]: "workspace",
+  [WS_METHODS.shellOpenUnrealAsset]: "workspace",
   [WS_METHODS.filesystemBrowse]: "workspace",
   [WS_METHODS.workspaceListFolders]: "workspace",
   [WS_METHODS.workspaceScanFolders]: "workspace",

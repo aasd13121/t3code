@@ -98,7 +98,12 @@ import {
   AcpRegistrySetProviderInput,
   AcpRegistrySetProviderResult,
 } from "./acpRegistry.ts";
-import { ExternalLauncherError, LaunchEditorInput } from "./editor.ts";
+import {
+  ExternalLauncherError,
+  LaunchEditorInput,
+  OpenUnrealAssetInput,
+  UnrealAssetOpenError,
+} from "./editor.ts";
 import {
   AuthAccessStreamError,
   AuthAccessStreamEvent,
@@ -515,6 +520,7 @@ export const WS_METHODS = {
   projectsCreateFromThread: "projects.createFromThread",
 
   shellOpenInEditor: "shell.openInEditor",
+  shellOpenUnrealAsset: "shell.openUnrealAsset",
 
   filesystemBrowse: "filesystem.browse",
   workspaceListFolders: "workspace.listFolders",
@@ -1727,6 +1733,11 @@ const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   error: Schema.Union([ExternalLauncherError, EnvironmentAuthorizationError]),
 });
 
+const WsShellOpenUnrealAssetRpc = Rpc.make(WS_METHODS.shellOpenUnrealAsset, {
+  payload: OpenUnrealAssetInput,
+  error: Schema.Union([UnrealAssetOpenError, EnvironmentAuthorizationError]),
+});
+
 const WsFilesystemGetMetadataRpc = Rpc.make(WS_METHODS.filesystemGetMetadata, {
   payload: FilesystemGetMetadataInput,
   success: FilesystemGetMetadataResult,
@@ -2723,6 +2734,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,
+  WsShellOpenUnrealAssetRpc,
   WsFilesystemBrowseRpc,
   WsWorkspaceListFoldersRpc,
   WsWorkspaceScanFoldersRpc,

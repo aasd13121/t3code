@@ -313,6 +313,8 @@ import {
 } from "../../state/threads";
 import { ThreadWorkflowOpening, useWorkflowOpening } from "./thread-workflow-opening";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { shellCommands } from "../../state/shell";
+import { isUnrealAssetPath } from "@t3tools/shared/fileLinks";
 import { useV2ItemSupport } from "../../state/v2-item-support";
 import {
   fileRoutePathSegments,
@@ -3108,6 +3110,7 @@ function PerfContentMark(props: { readonly probe: PerfProbe; readonly thread: st
 
 export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const gt = useGT();
+  const openUnrealAsset = useAtomCommand(shellCommands.openUnrealAsset, "open Unreal asset");
   const m = useMessages();
   const formatMessageTime = useMessageTimeFormatter();
   const { listRef, onIsAtEndChange, onHeaderMaterialVisibilityChange } = props;
@@ -3458,6 +3461,13 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       void findFileLinkTarget(presentation.path, path, request.signal, reply).then((target) => {
         if (request.signal.aborted) return;
         void Haptics.selectionAsync();
+        if (isUnrealAssetPath(target)) {
+          void openUnrealAsset({
+            environmentId: props.environmentId,
+            input: { path: resolveFileLinkPath(props.workspaceRoot, target) ?? target },
+          });
+          return;
+        }
         navigation.navigate("ThreadFile", {
           environmentId: String(props.environmentId),
           threadId: String(props.threadId),

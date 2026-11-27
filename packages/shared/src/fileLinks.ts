@@ -9,6 +9,10 @@ const POSITION_SUFFIX_CAPTURE_PATTERN = /:(\d+)(?::(\d+)|-(\d+))?$/;
 
 const POSITION_HASH_PATTERN = /^#L(\d+)(?:C(\d+)|-L?(\d+))?$/i;
 
+export function isUnrealAssetPath(path: string): boolean {
+  return /\.(uasset|umap)$/i.test(splitFilePathPosition(path).path);
+}
+
 /**
  * Keeps paths percent-encoded to avoid double decoding. `localhost` and `localHostname` (the
  * machine the path lives on) are local authorities; any other becomes a UNC share.

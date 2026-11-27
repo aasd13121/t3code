@@ -13,6 +13,8 @@ import {
   type EditorId,
   type FileManagerRevealKind,
   type LaunchEditorInput,
+  type OpenUnrealAssetInput,
+  type UnrealAssetOpenError,
 } from "@t3tools/contracts";
 import { resolveEditorCommand } from "@t3tools/shared/editor";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -29,9 +31,11 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import * as Semaphore from "effect/Semaphore";
 
 import { makeStaleWhileRevalidate } from "../environment/staleWhileRevalidate.ts";
 import { WindowsVerbatimSpawn } from "./windowsVerbatimSpawn.ts";
+import { openUnrealAsset } from "./unrealAsset.ts";
 export {
   ExternalLauncherError,
   ExternalLauncherBrowserSpawnError,
@@ -524,6 +528,9 @@ export class ExternalLauncher extends Context.Service<
     readonly resolveFileManagerRevealKind: () => Effect.Effect<FileManagerRevealKind | undefined>;
     readonly launchBrowser: (target: string) => Effect.Effect<void, ExternalLauncherError>;
     readonly launchEditor: (input: LaunchEditorInput) => Effect.Effect<void, ExternalLauncherError>;
+    readonly openUnrealAsset: (
+      input: OpenUnrealAssetInput,
+    ) => Effect.Effect<void, UnrealAssetOpenError>;
   }
 >()("t3/process/externalLauncher") {}
 
@@ -981,6 +988,7 @@ const launchEditorProcess = Effect.fn("externalLauncher.launchEditorProcess")(fu
 
 /** @public */
 export const make = Effect.gen(function* () {
+  const unrealCommands = yield* Semaphore.make(1);
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -1014,6 +1022,11 @@ export const make = Effect.gen(function* () {
 
   // Forwarders retain the underlying launcher and discovery spans.
   return ExternalLauncher.of({
+    openUnrealAsset: Effect.fnUntraced(function* (input) {
+      return yield* unrealCommands.withPermit(
+        provideCommandResolutionServices(openUnrealAsset(input)),
+      );
+    }),
     resolveAvailableEditors: Effect.fnUntraced(function* () {
       return yield* cachedAvailableEditors;
     }),

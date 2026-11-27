@@ -1,7 +1,7 @@
 import { m } from "../i18n/messages";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { msg, T, useGT, useMessages } from "gt-react";
-import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
+import { isUnrealAssetPath, resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { clientHostEnvironmentAtom } from "../state/clientHostEnvironment";
 import { buildFileLinkParentSuffixByPath, fileLinkLabel } from "@t3tools/shared/fileLinks";
 import {
@@ -751,6 +751,9 @@ function useChatMarkdownState(
   const openInEditor = useAtomCommand(shellEnvironment.openInEditor, {
     reportFailure: false,
   });
+  const openUnrealAsset = useAtomCommand(shellEnvironment.openUnrealAsset, {
+    reportFailure: false,
+  });
   const revealFileInFileManager = (filePath: string) => {
     if (environmentId === null) {
       return Promise.resolve(
@@ -999,6 +1002,8 @@ function useChatMarkdownState(
         findWorkspaceMatch: () => findWorkspaceFileMatch(fileLinkMeta),
       });
     const isAppBundle = isMacOS && fileLinkMeta.filePath.endsWith(".app");
+    const unrealAsset = isUnrealAssetPath(fileLinkMeta.filePath);
+    const canOpenUnrealAsset = environmentId !== null && canOperateHost && unrealAsset;
     const canOpenApp =
       environmentId !== null &&
       isAppBundle &&
@@ -1026,7 +1031,7 @@ function useChatMarkdownState(
         }
         isAppBundle={isAppBundle}
         workspaceRelativePath={fileLinkMeta.workspaceRelativePath}
-        panelPath={isAppBundle ? null : panelPath}
+        panelPath={isAppBundle || unrealAsset ? null : panelPath}
         line={fileLinkMeta.line}
         label={fileLinkLabel(
           {
@@ -1041,18 +1046,24 @@ function useChatMarkdownState(
         theme={resolvedTheme}
         threadRef={threadRef}
         onOpen={
-          canOpenApp
+          canOpenUnrealAsset
             ? async () =>
-                openInEditor({
+                openUnrealAsset({
                   environmentId,
-                  input: { cwd: (await resolveHostPath()).absolutePath, editor: "file-manager" },
+                  input: { path: (await resolveHostPath()).absolutePath },
                 })
-            : canUseShellActions
+            : canOpenApp
               ? async () =>
-                  openInPreferredEditor(
-                    markdownFileEditorTarget(fileLinkMeta, await resolveHostPath()),
-                  )
-              : undefined
+                  openInEditor({
+                    environmentId,
+                    input: { cwd: (await resolveHostPath()).absolutePath, editor: "file-manager" },
+                  })
+              : canUseShellActions
+                ? async () =>
+                    openInPreferredEditor(
+                      markdownFileEditorTarget(fileLinkMeta, await resolveHostPath()),
+                    )
+                : undefined
         }
         resolveDragPath={async () =>
           resolvePathLinkTarget((await resolveHostPath()).absolutePath, cwd ?? "")
@@ -1066,7 +1077,13 @@ function useChatMarkdownState(
             ? () => openMarkdownMedia(mediaPath, fileLinkMeta.filePath)
             : undefined
         }
-        openInEditorMenuLabel={canOpenApp ? gt("Open app") : preferredEditorMenuLabel}
+        openInEditorMenuLabel={
+          unrealAsset
+            ? gt("Open in {editor}", { editor: "Unreal Editor" })
+            : canOpenApp
+              ? gt("Open app")
+              : preferredEditorMenuLabel
+        }
         onReveal={
           canUseShellActions && revealInFileManagerLabel !== undefined
             ? async () => revealFileInFileManager((await resolveHostPath()).absolutePath)

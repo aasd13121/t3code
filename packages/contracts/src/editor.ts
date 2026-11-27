@@ -171,6 +171,43 @@ export const LaunchEditorInput = Schema.Struct({
 });
 export type LaunchEditorInput = typeof LaunchEditorInput.Type;
 
+export const OpenUnrealAssetInput = Schema.Struct({ path: TrimmedNonEmptyString });
+export type OpenUnrealAssetInput = typeof OpenUnrealAssetInput.Type;
+
+export class UnrealAssetOpenError extends Schema.TaggedError<UnrealAssetOpenError>()(
+  "UnrealAssetOpenError",
+  {
+    reason: Schema.Literals([
+      "invalid-path",
+      "project-not-found",
+      "editor-unavailable",
+      "project-mismatch",
+      "asset-not-found",
+      "map-busy",
+      "open-failed",
+    ]),
+  },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "invalid-path":
+        return "Choose an existing .uasset or .umap file inside an Unreal project Content folder.";
+      case "project-not-found":
+        return "No Unreal project was found for this asset.";
+      case "editor-unavailable":
+        return "Enable Unreal's built-in Python Editor Script Plugin and Editor Scripting Utilities, then enable Remote Execution in Project Settings > Plugins > Python and keep the project open.";
+      case "project-mismatch":
+        return "The connected Unreal Editor has a different project open. Open the asset's project first.";
+      case "asset-not-found":
+        return "Unreal Editor could not find this asset. Check that it is imported and its plugin is enabled.";
+      case "map-busy":
+        return "Stop Play in Editor and save the current level before opening another map.";
+      case "open-failed":
+        return "Unreal Editor could not open this asset.";
+    }
+  }
+}
+
 const remoteSchemeOf = (editor: EditorDefinition): string | undefined =>
   editor.remoteScheme ?? (editor.jetbrainsProductCode === undefined ? undefined : "jetbrains");
 

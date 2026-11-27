@@ -1,6 +1,7 @@
 import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections";
 import {
   createEnvironmentShellAtoms,
+  createShellEnvironmentAtoms,
   createEnvironmentShellSummaryAtom,
   createEnvironmentSnapshotAtom,
   EMPTY_SHELL_STATE,
@@ -15,6 +16,7 @@ import { environmentCatalog } from "../connection/catalog";
 import { connectionAtomRuntime } from "../connection/runtime";
 
 export const environmentShell = createEnvironmentShellAtoms(connectionAtomRuntime);
+export const shellCommands = createShellEnvironmentAtoms(connectionAtomRuntime);
 export const environmentSnapshotAtom = createEnvironmentSnapshotAtom(environmentShell.stateAtom);
 export const environmentShellSummaryAtom = createEnvironmentShellSummaryAtom({
   catalogValueAtom: environmentCatalog.catalogValueAtom,

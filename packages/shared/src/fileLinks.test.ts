@@ -5,7 +5,18 @@ import {
   parseFileUrlHref,
   splitFilePathPosition,
   resolvePathLinkTarget,
+  isUnrealAssetPath,
 } from "./fileLinks.ts";
+
+it.each([
+  ["D:/Game/Content/Combo.uasset", true],
+  [String.raw`D:\Game\Content\Combo.UASSET:12`, true],
+  ["/game/Content/Map.umap", true],
+  ["/game/Content/Combo.uasset.backup", false],
+  ["/game/Source/Game.cpp", false],
+])("recognizes Unreal asset path %s", (path, expected) => {
+  expect(isUnrealAssetPath(path)).toBe(expected);
+});
 
 describe("buildFileLinkParentSuffixByPath", () => {
   it.each([

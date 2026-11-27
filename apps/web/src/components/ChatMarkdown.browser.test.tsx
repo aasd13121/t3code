@@ -25,6 +25,23 @@ const { workspaceSearch, filesystemMetadata } = vi.hoisted(() => ({
 }));
 const parsedSources = vi.hoisted(() => [] as string[]);
 const nativeFileDrag = vi.hoisted(() => ({ enabled: false }));
+const openUnrealAsset = vi.hoisted(() =>
+  vi.fn(async (_input: unknown) => ({ _tag: "Success", value: undefined })),
+);
+vi.mock(import("../state/use-atom-command"), async (original) => {
+  const actual = await original();
+  const { shellEnvironment } = await import("../state/shell");
+  return {
+    ...actual,
+    useAtomCommand: ((command: unknown, ...args: unknown[]) =>
+      command === shellEnvironment.openUnrealAsset
+        ? openUnrealAsset
+        : Reflect.apply(actual.useAtomCommand, undefined, [
+            command,
+            ...args,
+          ])) as typeof actual.useAtomCommand,
+  };
+});
 vi.mock(import("../useNativeFileDrag"), async (original) => {
   const actual = await original();
   return {
@@ -567,6 +584,24 @@ describe("ChatMarkdown workspace file opens", () => {
     environmentId: EnvironmentId.make("workspace"),
     threadId: ThreadId.make("thread"),
   };
+
+  it("opens an Unreal asset on its environment without opening the binary file preview", async () => {
+    setup();
+    openUnrealAsset.mockClear();
+    using openFile = vi.spyOn(useRightPanelStore.getState(), "openFile");
+    await using screen = await renderText("[Combo2](D:/Game/Content/Abilities/Combo2.uasset)", {
+      threadRef,
+      cwd: "D:/Game",
+    });
+    await userEvent.click(screen.getByRole("link", { name: /Combo2/ }));
+    await vi.waitFor(() =>
+      expect(openUnrealAsset).toHaveBeenCalledWith({
+        environmentId: threadRef.environmentId,
+        input: { path: "D:/Game/Content/Abilities/Combo2.uasset" },
+      }),
+    );
+    expect(openFile).not.toHaveBeenCalled();
+  });
 
   it("keeps a newer absolute file open when an earlier repo-relative lookup finishes", async () => {
     setup();
