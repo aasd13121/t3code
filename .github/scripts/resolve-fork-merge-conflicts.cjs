@@ -176,7 +176,10 @@ function checkCatalogs(root) {
     const configPath = NodePath.join(root, app, "gt.config.json");
     if (!NodeFS.existsSync(configPath)) continue;
     const config = JSON.parse(NodeFS.readFileSync(configPath, "utf8"));
-    const directory = NodePath.join(NodePath.dirname(configPath), NodePath.dirname(config.files.gt.output));
+    const directory = NodePath.join(
+      NodePath.dirname(configPath),
+      NodePath.dirname(config.files.gt.output),
+    );
     const source = JSON.parse(
       NodeFS.readFileSync(NodePath.join(directory, `${config.defaultLocale}.json`), "utf8"),
     );
@@ -186,7 +189,9 @@ function checkCatalogs(root) {
       const catalog = JSON.parse(NodeFS.readFileSync(localePath, "utf8"));
       const missing = Object.keys(source).filter((key) => !(key in catalog));
       if (missing.length > 0) {
-        problems.push(`${localePath}: missing ${missing.length} key(s) of ${config.defaultLocale}.json, e.g. ${missing[0]}`);
+        problems.push(
+          `${localePath}: missing ${missing.length} key(s) of ${config.defaultLocale}.json, e.g. ${missing[0]}`,
+        );
       }
     }
   }
@@ -230,7 +235,11 @@ function main(argv) {
       return 2;
     }
     const measured = JSON.parse(NodeFS.readFileSync(measuredFile, "utf8"));
-    const result = resolveBudget(NodeFS.readFileSync(path, "utf8"), measured, NodePath.basename(path));
+    const result = resolveBudget(
+      NodeFS.readFileSync(path, "utf8"),
+      measured,
+      NodePath.basename(path),
+    );
     if (result === null) {
       console.error(`unresolved: ${path}`);
       return 1;

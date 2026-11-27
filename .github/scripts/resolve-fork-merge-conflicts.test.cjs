@@ -127,7 +127,8 @@ test("resolveBudget takes the measured values over both sides", () => {
 
 test("resolveBudget also accepts an already-cleared file", () => {
   // The repair clears the file before measuring, so this is the second pass's input.
-  const cleared = '{\n  "claudeSystemAppendBytes": -1,\n  "codexAdditionalContextBytes": -1,\n  "mcpToolListJsonBytes": -1\n}\n';
+  const cleared =
+    '{\n  "claudeSystemAppendBytes": -1,\n  "codexAdditionalContextBytes": -1,\n  "mcpToolListJsonBytes": -1\n}\n';
   const measured = {
     claudeSystemAppendBytes: 8004,
     codexAdditionalContextBytes: 9396,
@@ -181,7 +182,11 @@ test("the CLI resolves files in place", () => {
     NodeFS.writeFileSync(budget, budgetConflict);
     NodeFS.writeFileSync(
       measured,
-      JSON.stringify({ claudeSystemAppendBytes: 8004, codexAdditionalContextBytes: 9396, mcpToolListJsonBytes: 67097 }),
+      JSON.stringify({
+        claudeSystemAppendBytes: 8004,
+        codexAdditionalContextBytes: 9396,
+        mcpToolListJsonBytes: 67097,
+      }),
     );
 
     const { execFileSync } = require("node:child_process");
@@ -225,11 +230,21 @@ test("--check-catalogs ignores extra keys but catches a dropped one", () => {
     NodeFS.mkdirSync(translations, { recursive: true });
     NodeFS.writeFileSync(
       NodePath.join(directory, "apps", "web", "gt.config.json"),
-      JSON.stringify({ defaultLocale: "en", locales: ["zh"], files: { gt: { output: "src/i18n/translations/[locale].json" } } }),
+      JSON.stringify({
+        defaultLocale: "en",
+        locales: ["zh"],
+        files: { gt: { output: "src/i18n/translations/[locale].json" } },
+      }),
     );
-    NodeFS.writeFileSync(NodePath.join(translations, "en.json"), JSON.stringify({ a: "A", b: "B" }));
+    NodeFS.writeFileSync(
+      NodePath.join(translations, "en.json"),
+      JSON.stringify({ a: "A", b: "B" }),
+    );
     // An extra key is the fork's own drift and must not fail the check.
-    NodeFS.writeFileSync(NodePath.join(translations, "zh.json"), JSON.stringify({ a: "甲", b: "乙", fork: "叉" }));
+    NodeFS.writeFileSync(
+      NodePath.join(translations, "zh.json"),
+      JSON.stringify({ a: "甲", b: "乙", fork: "叉" }),
+    );
     assert.equal(checkCatalogs(directory), true);
 
     NodeFS.writeFileSync(NodePath.join(translations, "zh.json"), JSON.stringify({ a: "甲" }));
