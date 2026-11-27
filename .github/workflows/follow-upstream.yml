@@ -13,12 +13,16 @@ name: Follow upstream nightly
 
 on:
   schedule:
-    - cron: "0 */6 * * *" # every 6 hours
+    - cron: "17 */6 * * *" # every 6 hours, away from the busy hour boundary
   workflow_dispatch:
     inputs:
       upstream_tag:
         description: Optional specific upstream nightly tag to follow (e.g. v0.1.11-nightly.20261118.1234). Defaults to the latest.
         required: false
+      dry_run:
+        description: Validate the merge without pushing or publishing a release.
+        type: boolean
+        default: false
 
 permissions:
   contents: write # push merged task-board
@@ -42,6 +46,18 @@ jobs:
         with:
           ref: task-board
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify repository sync credential
+        if: inputs.dry_run != true
+        shell: bash
+        env:
+          SYNC_SSH_KEY: ${{ secrets.UPSTREAM_SYNC_SSH_KEY }}
+        run: |
+          if [[ -z "$SYNC_SSH_KEY" ]]; then
+            echo "::error::Configure UPSTREAM_SYNC_SSH_KEY with a write deploy key for this repository."
+            exit 1
+          fi
 
       - name: Configure git and upstream remote
         shell: bash
@@ -55,18 +71,24 @@ jobs:
         shell: bash
         env:
           INPUT_TAG: ${{ inputs.upstream_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
+          latest="$(git ls-remote --tags upstream 'v*-nightly.*' \
+                   | awk -F'refs/tags/' '{print $NF}' \
+                   | sed 's/\^{}$//' \
+                   | sort -V | tail -1)"
           if [[ -n "$INPUT_TAG" ]]; then
+            if [[ "$INPUT_TAG" != "$latest" ]]; then
+              echo "::error::Only the latest upstream nightly ($latest) may be published; use dry_run for an older tag."
+              if [[ "$DRY_RUN" != true ]]; then exit 1; fi
+            fi
             tag="$INPUT_TAG"
           else
             # List upstream nightly tags without fetching, pick the newest by
             # version sort. CI runners are US-based, so direct ls-remote is fast
             # (the ghfast.top proxy is only needed from the user's China link).
-            tag="$(git ls-remote --tags upstream 'v*-nightly.*' \
-                   | awk -F'refs/tags/' '{print $NF}' \
-                   | sed 's/\^{}$//' \
-                   | sort -V | tail -1)"
+            tag="$latest"
           fi
           if [[ -z "$tag" ]]; then
             echo "No upstream nightly tag found."
@@ -122,7 +144,7 @@ jobs:
         if: steps.dedup.outputs.skip == 'false' && env.merge_conflict == 'true'
         uses: ./.github/actions/setup-ci-deps
         with:
-          install-args: "--filter=@t3tools/server... --filter=@t3tools/web..."
+          install-args: "--filter=t3... --filter=@t3tools/web..."
 
       # The fork's extra MCP tools always put its agentContextBudget.json above
       # upstream's, and both sides append keys to the locale catalogs. Both are
@@ -194,12 +216,24 @@ jobs:
           echo "task-board includes $UPSTREAM_TAG (auto-resolved)."
 
       - name: Push merged task-board
-        if: steps.dedup.outputs.skip == 'false' && env.merge_conflict != 'true'
+        if: steps.dedup.outputs.skip == 'false' && env.merge_conflict != 'true' && inputs.dry_run != true
         shell: bash
-        run: git push origin task-board
+        env:
+          SYNC_SSH_KEY: ${{ secrets.UPSTREAM_SYNC_SSH_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$(mktemp "$RUNNER_TEMP/upstream-key.XXXXXX")"
+          hosts="$(mktemp "$RUNNER_TEMP/upstream-hosts.XXXXXX")"
+          trap 'rm -f "$key" "$hosts"' EXIT
+          printf '%s\n' "$SYNC_SSH_KEY" > "$key"
+          gh api meta --jq '.ssh_keys[] | "github.com \(.)"' > "$hosts"
+          export GIT_SSH_COMMAND="ssh -i \"$key\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\"$hosts\""
+          git push "git@github.com:$GITHUB_REPOSITORY.git" HEAD:refs/heads/task-board
 
       - name: Dispatch release-fork workflow
-        if: steps.dedup.outputs.skip == 'false' && env.merge_conflict != 'true'
+        if: steps.dedup.outputs.skip == 'false' && env.merge_conflict != 'true' && inputs.dry_run != true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
