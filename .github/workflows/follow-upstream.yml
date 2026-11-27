@@ -47,6 +47,10 @@ jobs:
           ref: task-board
           fetch-depth: 0
           persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
 
       - name: Verify repository sync credential
         if: inputs.dry_run != true

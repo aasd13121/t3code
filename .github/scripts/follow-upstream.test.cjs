@@ -22,6 +22,8 @@ const bash =
 test("the sync push uses a repository SSH credential without persisting it during dependency installation", () => {
   const checkout = steps.find((step) => step.name === "Checkout fork (full history)");
   assert.equal(checkout.with["persist-credentials"], false);
+  assert.match(checkout.with["sparse-checkout"], /!\/\.repos\//);
+  assert.equal(checkout.with["sparse-checkout-cone-mode"], false);
   assert.equal(checkout.with["ssh-key"], undefined);
   const push = steps.find((step) => step.name === "Push merged task-board");
   assert.equal(push.env.SYNC_SSH_KEY, "${{ secrets.UPSTREAM_SYNC_SSH_KEY }}");
