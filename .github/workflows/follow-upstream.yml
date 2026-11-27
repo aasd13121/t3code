@@ -25,7 +25,7 @@ on:
         default: false
 
 permissions:
-  contents: write # push merged task-board
+  contents: read # checkout only; the repository deploy key pushes task-board
   actions: write # dispatch release-fork.yml
   issues: write # open an issue on merge conflict
 
@@ -46,11 +46,23 @@ jobs:
         with:
           ref: task-board
           fetch-depth: 0
-          persist-credentials: false
+          persist-credentials: true
           sparse-checkout: |
             /*
             !/.repos/
           sparse-checkout-cone-mode: false
+
+      - name: Clear checkout credential before project code
+        shell: bash
+        run: |
+          set -euo pipefail
+          # checkout's cleanup visits malformed reference submodules; remove its isolated token file directly.
+          while read -r key file; do
+            case "$file" in
+              "$RUNNER_TEMP"/git-credentials-*.config) rm -f -- "$file" ;;
+            esac
+            git config --local --unset-all "$key"
+          done < <(git config --local --get-regexp '^includeif\..*\.path$' || true)
 
       - name: Verify repository sync credential
         if: inputs.dry_run != true
