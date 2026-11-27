@@ -199,6 +199,120 @@ it.effect("lists model IDs from the selected API without claiming their image ca
   }).pipe(Effect.provide(layer({ apiKey: "key" }))),
 );
 
+it.effect("lists Google's native model catalog with a header key and pagination", () =>
+  Effect.gen(function* () {
+    const images = yield* ImageGenerators.ImageGenerators;
+    const upstream = vi.fn<typeof fetch>(async (input, init) => {
+      const url = new URL(String(input));
+      expect(url.pathname).toBe("/v1beta/models");
+      expect(url.searchParams.get("key")).toBeNull();
+      expect(new Headers(init?.headers).get("x-goog-api-key")).toBe("google-key");
+      expect(new Headers(init?.headers).get("authorization")).toBeNull();
+      return url.searchParams.has("pageToken")
+        ? Response.json({ models: [{ name: "models/image-model" }] })
+        : Response.json({ models: [{ name: "models/chat-model" }], nextPageToken: "page-two" });
+    });
+    const result = yield* images
+      .list({ generatorId: ID })
+      .pipe(Effect.provideService(FetchHttpClient.Fetch, upstream));
+    expect(result.models).toEqual({
+      generatorId: ID,
+      ids: ["chat-model", "image-model"],
+      capabilitiesVerified: false,
+    });
+    expect(upstream).toHaveBeenCalledTimes(2);
+  }).pipe(
+    Effect.provide(
+      layer({ baseUrl: "https://generativelanguage.googleapis.com", apiKey: "google-key" }),
+    ),
+  ),
+);
+
+it.effect.each([
+  "https://generativelanguage.googleapis.com",
+  "https://generativelanguage.googleapis.com/v1beta",
+  "https://generativelanguage.googleapis.com/v1beta/models",
+])("uses Google's native image protocol for %s", (baseUrl) =>
+  Effect.gen(function* () {
+    const images = yield* ImageGenerators.ImageGenerators;
+    const upstream = vi.fn<typeof fetch>(async (input, init) => {
+      const url = new URL(String(input));
+      expect(url.pathname).toBe("/v1beta/models/image-model:generateContent");
+      expect(url.search).toBe("");
+      expect(new Headers(init?.headers).get("x-goog-api-key")).toBe("google-key");
+      expect(new Headers(init?.headers).get("authorization")).toBeNull();
+      expect(JSON.parse(String(init?.body))).toEqual({
+        contents: [{ parts: [{ text: request.prompt }] }],
+        generationConfig: { responseModalities: ["IMAGE"], imageConfig: { imageSize: "1K" } },
+      });
+      return Response.json({
+        candidates: [
+          {
+            content: {
+              parts: [
+                { text: "Image caption" },
+                { inlineData: { mimeType: "image/png", data: PNG.toString("base64") } },
+              ],
+            },
+          },
+        ],
+      });
+    });
+    const result = yield* images
+      .generate({ ...request, model: "models/image-model", size: "1K" })
+      .pipe(Effect.provideService(FetchHttpClient.Fetch, upstream));
+    expect(result).toMatchObject({
+      mimeType: "image/png",
+      width: 1,
+      height: 1,
+      sizeBytes: PNG.byteLength,
+    });
+    expect(JSON.stringify(result)).not.toContain(PNG.toString("base64"));
+    const fileSystem = yield* FileSystem.FileSystem;
+    expect(Buffer.from(yield* fileSystem.readFile(result.path))).toEqual(PNG);
+  }).pipe(Effect.provide(layer({ baseUrl, apiKey: "google-key" }))),
+);
+
+it.effect("reports Google's 429 quota response without retrying or changing providers", () =>
+  Effect.gen(function* () {
+    const images = yield* ImageGenerators.ImageGenerators;
+    const upstream = vi.fn<typeof fetch>(async () =>
+      Response.json(
+        { error: { code: 429, message: "free quota limit 0; private provider text" } },
+        { status: 429 },
+      ),
+    );
+    const failure = yield* Effect.flip(
+      images
+        .generate({ ...request, size: "auto" })
+        .pipe(Effect.provideService(FetchHttpClient.Fetch, upstream)),
+    );
+    expect(failure).toMatchObject({ reason: "http_error", status: 429 });
+    expect(JSON.stringify(failure)).not.toContain("private provider text");
+    expect(upstream).toHaveBeenCalledTimes(1);
+  }).pipe(
+    Effect.provide(
+      layer({ baseUrl: "https://generativelanguage.googleapis.com", apiKey: "google-key" }),
+    ),
+  ),
+);
+
+it.effect("refuses OpenAI-only parameters before spending Google API credit", () =>
+  Effect.gen(function* () {
+    const images = yield* ImageGenerators.ImageGenerators;
+    const upstream = vi.fn<typeof fetch>();
+    const failure = yield* Effect.flip(
+      images.generate(request).pipe(Effect.provideService(FetchHttpClient.Fetch, upstream)),
+    );
+    expect(failure.reason).toBe("invalid_request");
+    expect(upstream).not.toHaveBeenCalled();
+  }).pipe(
+    Effect.provide(
+      layer({ baseUrl: "https://generativelanguage.googleapis.com", apiKey: "google-key" }),
+    ),
+  ),
+);
+
 it.effect("bounds the response and refuses invalid image bytes or provider error text", () =>
   Effect.gen(function* () {
     const images = yield* ImageGenerators.ImageGenerators;

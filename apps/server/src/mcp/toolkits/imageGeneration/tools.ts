@@ -37,7 +37,7 @@ const ListImageGeneratorsTool = Tool.make("list_image_generators", {
 const GenerateImageTool = Tool.make("generate_image", {
   ...shared,
   description:
-    "Generate one image through a configured OpenAI-compatible Images API, even when your chat model cannot generate images. Only when the user requests an image. Supply an enabled generatorId from list_image_generators and an explicit API model. May incur the provider's charge; failure never switches providers. Returns a saved absolute path and metadata; show or link that file, never inline base64.",
+    "Generate one image through a configured OpenAI-compatible Images API or Google's official Gemini API, even when your chat model cannot generate images. Only when the user requests an image. Supply an enabled generatorId from list_image_generators and an explicit API model. Google: size auto/1K/2K/4K, omit quality. May incur the provider's charge; failure never switches providers. Returns a saved absolute path and metadata; show or link that file, never inline base64.",
   parameters: GenerateImageInput,
   success: GeneratedImageResult,
 })

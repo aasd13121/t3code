@@ -51,6 +51,51 @@ const decodeModels = Schema.decodeEffect(
     }),
   ),
 );
+const decodeGoogleModels = Schema.decodeEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      models: Schema.Array(
+        Schema.Struct({ name: Schema.String.check(Schema.isMaxLength(200)) }),
+      ).check(Schema.isMaxLength(2000)),
+      nextPageToken: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(2048))),
+    }),
+  ),
+);
+const decodeGoogleReply = Schema.decodeEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      candidates: Schema.Array(
+        Schema.Struct({
+          content: Schema.Struct({
+            parts: Schema.Array(
+              Schema.Struct({
+                inlineData: Schema.optionalKey(
+                  Schema.Struct({
+                    mimeType: Schema.Literals(["image/png", "image/jpeg", "image/webp"]),
+                    data: Schema.String,
+                  }),
+                ),
+              }),
+            ),
+          }),
+        }),
+      ),
+    }),
+  ),
+);
+
+const isGoogle = (url: URL) => url.hostname === "generativelanguage.googleapis.com";
+
+const authenticate = (
+  request: HttpClientRequest.HttpClientRequest,
+  apiKey: string,
+  google: boolean,
+) =>
+  !apiKey
+    ? request
+    : google
+      ? HttpClientRequest.setHeader(request, "x-goog-api-key", apiKey)
+      : HttpClientRequest.bearerToken(request, apiKey);
 
 export class ImageGenerators extends Context.Service<
   ImageGenerators,
@@ -76,6 +121,12 @@ const endpoint = (baseUrl: string) => {
     throw new Error("Invalid image generator URL");
   }
   const path = url.pathname.replace(/\/+$/, "");
+  if (isGoogle(url)) {
+    if (url.protocol !== "https:") throw new Error("Google image APIs require HTTPS");
+    const version = /^\/(v1(?:beta|alpha)?)(?:\/|$)/.exec(path)?.[1] ?? "v1beta";
+    url.pathname = `/${version}/models`;
+    return url;
+  }
   url.pathname = path.endsWith("/images/generations")
     ? path
     : path === ""
@@ -178,25 +229,49 @@ export const make = Effect.gen(function* () {
       const apiKey = yield* requireSettingsSecret(secrets, generator.apiKey).pipe(
         Effect.mapError(() => new ImageGenerationError({ reason: "secret_unavailable" })),
       );
-      let request = HttpClientRequest.get(url.href);
-      if (apiKey) request = HttpClientRequest.bearerToken(request, apiKey);
-      const bytes = yield* execute(request).pipe(
-        Effect.provideService(HttpClient.HttpClient, http),
-        Effect.flatMap((response) => readBytes(response, 1024 * 1024)),
-        Effect.mapError((error) =>
-          error.status === 404 || error.status === 405
-            ? new ImageGenerationError({ reason: "models_unavailable", status: error.status })
-            : error,
-        ),
-      );
-      const models = yield* decodeModels(new TextDecoder().decode(bytes)).pipe(
-        Effect.mapError(() => new ImageGenerationError({ reason: "models_unavailable" })),
-      );
+      const google = isGoogle(url);
+      const ids = new Set<string>();
+      let pageToken: string | undefined;
+      for (let page = 0; page < 10; page += 1) {
+        if (google) {
+          url.searchParams.set("pageSize", "1000");
+          if (pageToken !== undefined) url.searchParams.set("pageToken", pageToken);
+        }
+        const request = authenticate(HttpClientRequest.get(url.href), apiKey, google);
+        const bytes = yield* execute(request).pipe(
+          Effect.provideService(HttpClient.HttpClient, http),
+          Effect.flatMap((response) => readBytes(response, 1024 * 1024)),
+          Effect.mapError((error) =>
+            error.status === 404 || error.status === 405
+              ? new ImageGenerationError({ reason: "models_unavailable", status: error.status })
+              : error,
+          ),
+        );
+        const body = new TextDecoder().decode(bytes);
+        if (google) {
+          const models = yield* decodeGoogleModels(body).pipe(
+            Effect.mapError(() => new ImageGenerationError({ reason: "models_unavailable" })),
+          );
+          for (const { name } of models.models) {
+            const id = name.replace(/^models\//, "").trim();
+            if (id) ids.add(id);
+          }
+          pageToken = models.nextPageToken;
+          if (!pageToken) break;
+          if (page === 9) return yield* new ImageGenerationError({ reason: "models_unavailable" });
+        } else {
+          const models = yield* decodeModels(body).pipe(
+            Effect.mapError(() => new ImageGenerationError({ reason: "models_unavailable" })),
+          );
+          for (const { id } of models.data) if (id.trim()) ids.add(id.trim());
+          break;
+        }
+      }
       return {
         generators,
         models: {
           generatorId: input.generatorId,
-          ids: [...new Set(models.data.map(({ id }) => id.trim()).filter(Boolean))].sort(),
+          ids: [...ids].sort(),
           capabilitiesVerified: false as const,
         },
       };
@@ -222,24 +297,59 @@ export const make = Effect.gen(function* () {
       const apiKey = yield* requireSettingsSecret(secrets, generator.apiKey).pipe(
         Effect.mapError(() => new ImageGenerationError({ reason: "secret_unavailable" })),
       );
-      let request = HttpClientRequest.post(url.href).pipe(
-        HttpClientRequest.bodyJsonUnsafe({
-          model: parsed.model,
-          prompt: parsed.prompt,
-          n: 1,
-          ...(parsed.size === undefined ? {} : { size: parsed.size }),
-          ...(parsed.quality === undefined ? {} : { quality: parsed.quality }),
-        }),
+      const google = isGoogle(url);
+      if (
+        google &&
+        (parsed.quality !== undefined ||
+          (parsed.size !== undefined && !["auto", "1K", "2K", "4K"].includes(parsed.size)))
+      ) {
+        return yield* new ImageGenerationError({ reason: "invalid_request" });
+      }
+      if (google)
+        url.pathname += `/${encodeURIComponent(parsed.model.replace(/^models\//, ""))}:generateContent`;
+      const body = google
+        ? {
+            contents: [{ parts: [{ text: parsed.prompt }] }],
+            generationConfig: {
+              responseModalities: ["IMAGE"],
+              ...(parsed.size === undefined || parsed.size === "auto"
+                ? {}
+                : { imageConfig: { imageSize: parsed.size } }),
+            },
+          }
+        : {
+            model: parsed.model,
+            prompt: parsed.prompt,
+            n: 1,
+            ...(parsed.size === undefined ? {} : { size: parsed.size }),
+            ...(parsed.quality === undefined ? {} : { quality: parsed.quality }),
+          };
+      const request = authenticate(
+        HttpClientRequest.post(url.href).pipe(HttpClientRequest.bodyJsonUnsafe(body)),
+        apiKey,
+        google,
       );
-      if (apiKey) request = HttpClientRequest.bearerToken(request, apiKey);
       const response = yield* execute(request).pipe(
         Effect.provideService(HttpClient.HttpClient, http),
       );
       const json = yield* readBytes(response, MAX_RESPONSE_BYTES);
-      const reply = yield* decodeReply(new TextDecoder().decode(json)).pipe(
-        Effect.mapError(() => new ImageGenerationError({ reason: "invalid_response" })),
-      );
-      const item = reply.data[0]!;
+      let item: { readonly b64_json?: string; readonly url?: string };
+      if (google) {
+        const reply = yield* decodeGoogleReply(new TextDecoder().decode(json)).pipe(
+          Effect.mapError(() => new ImageGenerationError({ reason: "invalid_response" })),
+        );
+        const image = reply.candidates.flatMap(({ content }) =>
+          content.parts.flatMap(({ inlineData }) => (inlineData === undefined ? [] : [inlineData])),
+        )[0];
+        if (image === undefined)
+          return yield* new ImageGenerationError({ reason: "invalid_response" });
+        item = { b64_json: image.data };
+      } else {
+        const reply = yield* decodeReply(new TextDecoder().decode(json)).pipe(
+          Effect.mapError(() => new ImageGenerationError({ reason: "invalid_response" })),
+        );
+        item = reply.data[0]!;
+      }
       let bytes: Uint8Array;
       if (item.b64_json !== undefined) {
         const base64 = parseBase64DataUrl(`data:image/png;base64,${item.b64_json}`);
