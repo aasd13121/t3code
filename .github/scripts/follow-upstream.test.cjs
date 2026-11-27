@@ -21,7 +21,12 @@ const bash =
 
 test("the sync push uses a repository SSH credential without persisting it during dependency installation", () => {
   const checkout = steps.find((step) => step.name === "Checkout fork (full history)");
-  assert.equal(checkout.with["persist-credentials"], false);
+  assert.equal(checkout.with["persist-credentials"], true);
+  assert.equal(workflow.permissions.contents, "read");
+  assert.ok(
+    steps.findIndex((step) => step.name === "Clear checkout credential before project code") <
+      steps.findIndex((step) => step.name === "Setup dependencies for the repair"),
+  );
   assert.match(checkout.with["sparse-checkout"], /!\/\.repos\//);
   assert.equal(checkout.with["sparse-checkout-cone-mode"], false);
   assert.equal(checkout.with["ssh-key"], undefined);
