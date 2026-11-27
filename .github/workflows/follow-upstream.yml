@@ -32,7 +32,9 @@ concurrency:
 jobs:
   follow:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # A plain merge finishes in about a minute. The repair path installs the server
+    # and web dependencies and runs the budget test, so it needs the room.
+    timeout-minutes: 30
     if: github.repository_owner != 'pingdotgg'
     steps:
       - name: Checkout fork (full history)
@@ -108,13 +110,88 @@ jobs:
           UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
         run: |
           set -euo pipefail
-          if ! git merge --no-edit "$UPSTREAM_TAG"; then
+          if git merge --no-edit "$UPSTREAM_TAG"; then
+            echo "task-board includes $UPSTREAM_TAG."
+            exit 0
+          fi
+          # Leave the conflicted tree in place; the repair step resolves it or aborts.
+          echo "merge_conflict=true" >> "$GITHUB_ENV"
+          echo "Merge of $UPSTREAM_TAG into task-board conflicted; attempting automatic repair."
+
+      - name: Setup dependencies for the repair
+        if: steps.dedup.outputs.skip == 'false' && env.merge_conflict == 'true'
+        uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: "--filter=@t3tools/server... --filter=@t3tools/web..."
+
+      # The fork's extra MCP tools always put its agentContextBudget.json above
+      # upstream's, and both sides append keys to the locale catalogs. Both are
+      # flat JSON whose union is well defined, so neither needs a person. The
+      # script either resolves every conflicted path or aborts the merge.
+      - name: Repair known merge conflicts
+        if: steps.dedup.outputs.skip == 'false' && env.merge_conflict == 'true'
+        shell: bash
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+          REPAIR: .github/scripts/resolve-fork-merge-conflicts.cjs
+        run: |
+          set -euo pipefail
+          mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+          printf 'Conflicted: %s\n' "${conflicts[@]}"
+
+          catalogs=()
+          budget_file=""
+          leftovers=()
+          for path in "${conflicts[@]}"; do
+            case "$path" in
+              apps/server/src/provider/agentContextBudget.json) budget_file="$path" ;;
+              *"/src/i18n/translations/"*.json) catalogs+=("$path") ;;
+              *) leftovers+=("$path") ;;
+            esac
+          done
+
+          # The budget test fails against a conflicted file and prints the measured
+          # values. Conflict markers are not valid JSON, so the file is first cut
+          # down to a side: the numbers are replaced by the measurement anyway.
+          if [[ -n "$budget_file" ]]; then
+            log="$RUNNER_TEMP/budget-test.log"
+            measured="$RUNNER_TEMP/measured.json"
+            if ! node "$REPAIR" --clear-budget "$budget_file"; then
+              leftovers+=("$budget_file")
+            else
+              (cd apps/server && vp test run src/provider/AgentContextBudget.test.ts) > "$log" 2>&1 || true
+              if ! node "$REPAIR" --measured "$log" > "$measured"; then
+                echo "The budget test did not report measured values."
+                leftovers+=("$budget_file")
+              elif ! node "$REPAIR" --budget "$budget_file" "$measured"; then
+                leftovers+=("$budget_file")
+              fi
+            fi
+          fi
+
+          if [[ "${#catalogs[@]}" -gt 0 ]]; then
+            if ! node "$REPAIR" --translate "${catalogs[@]}"; then
+              leftovers+=("${catalogs[@]}")
+            fi
+          fi
+
+          if [[ "${#leftovers[@]}" -gt 0 ]]; then
+            echo "::error::Merge of $UPSTREAM_TAG needs manual resolution: ${leftovers[*]}"
             git merge --abort 2>/dev/null || true
-            echo "::error::Merge of $UPSTREAM_TAG into task-board conflicted. Manual resolution required."
-            echo "merge_conflict=true" >> "$GITHUB_ENV"
             exit 1
           fi
-          echo "task-board includes $UPSTREAM_TAG."
+
+          # The repaired budget must match what the merged tree measures.
+          (cd apps/server && vp test run src/provider/AgentContextBudget.test.ts)
+          # A repair must not drop a translation the source catalog still has.
+          node "$REPAIR" --check-catalogs
+
+          git add -A
+          git commit --no-edit --no-verify
+          # Cleared so the push and release dispatch below run as they do after a
+          # clean merge; the issue step keys off the same flag.
+          echo "merge_conflict=false" >> "$GITHUB_ENV"
+          echo "task-board includes $UPSTREAM_TAG (auto-resolved)."
 
       - name: Push merged task-board
         if: steps.dedup.outputs.skip == 'false' && env.merge_conflict != 'true'
