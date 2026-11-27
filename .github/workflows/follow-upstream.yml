@@ -71,18 +71,24 @@ jobs:
         shell: bash
         env:
           INPUT_TAG: ${{ inputs.upstream_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
+          latest="$(git ls-remote --tags upstream 'v*-nightly.*' \
+                   | awk -F'refs/tags/' '{print $NF}' \
+                   | sed 's/\^{}$//' \
+                   | sort -V | tail -1)"
           if [[ -n "$INPUT_TAG" ]]; then
+            if [[ "$INPUT_TAG" != "$latest" ]]; then
+              echo "::error::Only the latest upstream nightly ($latest) may be published; use dry_run for an older tag."
+              if [[ "$DRY_RUN" != true ]]; then exit 1; fi
+            fi
             tag="$INPUT_TAG"
           else
             # List upstream nightly tags without fetching, pick the newest by
             # version sort. CI runners are US-based, so direct ls-remote is fast
             # (the ghfast.top proxy is only needed from the user's China link).
-            tag="$(git ls-remote --tags upstream 'v*-nightly.*' \
-                   | awk -F'refs/tags/' '{print $NF}' \
-                   | sed 's/\^{}$//' \
-                   | sort -V | tail -1)"
+            tag="$latest"
           fi
           if [[ -z "$tag" ]]; then
             echo "No upstream nightly tag found."

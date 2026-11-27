@@ -36,10 +36,9 @@ env:
   # gating does for non-pingdotgg repos.
   T3CODE_TELEMETRY_CHANNEL: dev
 
-# Group by version so a re-trigger (e.g. follow-upstream retry) does not run
-# two builds for the same version in parallel. Don't cancel an in-flight build.
+# Serialize releases so the pointer check and update cannot race across versions.
 concurrency:
-  group: release-fork-${{ inputs.version || github.ref_name }}
+  group: release-fork-nightly
   cancel-in-progress: false
 
 jobs:
@@ -336,6 +335,14 @@ jobs:
           tag="v$VERSION"
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > nightly.json
           if gh release view update-feed --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            current_dir="$(mktemp -d "$RUNNER_TEMP/current-feed.XXXXXX")"
+            gh release download update-feed --repo "$GITHUB_REPOSITORY" --pattern nightly.json --dir "$current_dir"
+            current_tag="$(jq -er '.tag_name' "$current_dir/nightly.json")"
+            advance="$(node .github/scripts/fork-release-guard.cjs "$tag" "$current_tag")"
+            if [[ "$advance" != true ]]; then
+              echo "Keeping $current_tag: $tag would downgrade the nightly channel."
+              exit 0
+            fi
             gh release upload update-feed nightly.json --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create update-feed --repo "$GITHUB_REPOSITORY" \
