@@ -200,6 +200,7 @@ jobs:
               (cd apps/server && vp test run src/provider/AgentContextBudget.test.ts) > "$log" 2>&1 || true
               if ! node "$REPAIR" --measured "$log" > "$measured"; then
                 echo "The budget test did not report measured values."
+                tail -n 120 "$log"
                 leftovers+=("$budget_file")
               elif ! node "$REPAIR" --budget "$budget_file" "$measured"; then
                 leftovers+=("$budget_file")

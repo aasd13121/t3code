@@ -4,6 +4,7 @@ import { expect, it } from "@effect/vitest";
 import { ProviderInstanceId } from "@t3tools/contracts";
 import { McpProviderSessions } from "@t3tools/provider-core/server/McpProviderSessions";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
+import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { McpServer } from "effect/ai";
@@ -168,6 +169,8 @@ it.effect("agent context matches the committed budget", () =>
         ),
       ),
     };
+
+    yield* Console.log(`T3_AGENT_CONTEXT_BUDGET ${JSON.stringify(measured)}`);
 
     expect(
       measured,

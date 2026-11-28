@@ -165,6 +165,15 @@ AssertionError: Set agentContextBudget.json to the measured values.: expected {}
   });
 });
 
+test("parseMeasuredBudget prefers the machine-readable report", () => {
+  const output = `stdout | src/provider/AgentContextBudget.test.ts > agent context matches the committed budget\nT3_AGENT_CONTEXT_BUDGET {"claudeSystemAppendBytes":8004,"codexAdditionalContextBytes":9396,"mcpToolListJsonBytes":67097}\n`;
+  assert.deepEqual(parseMeasuredBudget(output), {
+    claudeSystemAppendBytes: 8004,
+    codexAdditionalContextBytes: 9396,
+    mcpToolListJsonBytes: 67097,
+  });
+});
+
 test("parseMeasuredBudget ignores a passing run", () => {
   assert.equal(parseMeasuredBudget("Test Files  1 passed (1)\n"), null);
 });

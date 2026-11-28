@@ -134,6 +134,11 @@ function resolveBudget(text, measured, label) {
 
 /** Reads the measured values out of AgentContextBudget.test.ts's failure output. */
 function parseMeasuredBudget(output) {
+  const report = /T3_AGENT_CONTEXT_BUDGET\s+(\{[^\r\n]+\})/.exec(output);
+  if (report !== null) {
+    const measured = JSON.parse(report[1]);
+    return Object.keys(measured).length > 0 ? measured : null;
+  }
   // The assertion prints `actual: { ... }` with the measured numbers.
   const start = output.indexOf("actual: {");
   if (start === -1) return null;
